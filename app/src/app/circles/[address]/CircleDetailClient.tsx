@@ -371,8 +371,20 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
     let disposed = false;
     const resolve = async () => {
       const current = ++generation;
+      // Abort any in-flight transaction or refresh first so their async
+      // completion paths do not race with the state we set below.
       txAbortRef.current?.abort();
       refreshAbortRef.current?.abort();
+      // Clear submittingRef synchronously here, not just in the doAction/
+      // doDefault finally block.  The finally block still runs, but there is
+      // an async window between the abort() call above and the finally block
+      // settling where submittingRef could stay true and block the new account
+      // from triggering any action.  Clearing it here closes that window —
+      // the double-clear in finally is harmless.
+      submittingRef.current = false;
+      // Clear all member-specific UI state immediately.  Circle data (data,
+      // dataFetchedAtMs) is identity-independent and intentionally preserved
+      // so the page does not blank out between account switches.
       setWalletAddress(null);
       setWalletLoadState('loading');
       setNetworkMismatch(null);
@@ -380,8 +392,9 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
       setRetryAction(null);
       setContributionReceipt(null);
       setSuccess(null);
+      setLoading(null);
       setError(''); setErrorTypedError(null); setErrorTxHash(null); setErrorOperation(undefined);
-      setIsManualRefreshing(false); setRefreshState('idle');
+      setIsManualRefreshing(false); setRefreshState('idle'); setAwaitingIndex(false);
       try {
         const address = await getWalletAddress();
         if (disposed || current !== generation) return;

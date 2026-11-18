@@ -343,15 +343,57 @@ export function WalletButton() {
     );
   }
 
-  // ── Checking / Connecting / Changing / Idle ─────────────────────────────
+  // ── Render: account changing ────────────────────────────────────────────
+  //
+  // Shown when the provider fires accountChanged or networkChanged.
+  // Any in-flight transaction continues on-chain regardless of this UI state.
+  // A link to /transactions lets the user check whether a submitted tx
+  // confirmed without having to re-sign or resubmit it.
+  if (state.status === "changing") {
+    return (
+      <div className="flex items-center gap-2">
+        <span
+          className="flex items-center gap-1.5 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600"
+          role="status"
+          aria-live="polite"
+          aria-label="Wallet account is updating"
+        >
+          <svg
+            className="animate-spin h-3.5 w-3.5 text-slate-500"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+          </svg>
+          Updating…
+        </span>
+        {/*
+          An already-submitted transaction continues on-chain independently of
+          the wallet UI state. The user can check its outcome by hash without
+          re-signing. Surface the link here so it is visible during the
+          transition rather than requiring navigation.
+        */}
+        <a
+          href="/transactions"
+          className="text-xs text-slate-500 hover:text-slate-700 underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1"
+          title="Check whether a submitted transaction confirmed — no re-signing required"
+        >
+          Check pending tx
+        </a>
+      </div>
+    );
+  }
+
+  // ── Checking / Connecting / Idle ────────────────────────────────────────
   const isLoading =
     state.status === "checking" ||
-    state.status === "connecting" ||
-    state.status === "changing";
+    state.status === "connecting";
 
   const label =
     state.status === "connecting" ? "Connecting…"
-    : state.status === "changing" ? "Updating…"
     : "Connect Freighter";
 
   return (
