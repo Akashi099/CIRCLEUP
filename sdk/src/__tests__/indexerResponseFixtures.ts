@@ -236,3 +236,91 @@ export const INDEXER_STATE_FIXTURE = {
     circlesByStatus: { Active: 1 },
   },
 };
+
+/** GET /members/:member/circles — member dashboard */
+export const MEMBER_CIRCLES_FIXTURE = {
+  circles: [
+    {
+      circle: {
+        address: CIRCLE,
+        creator: CREATOR,
+        round_amount: "100000000",
+        member_count: 2,
+        status: "Active",
+        current_round: 1,
+        total_rounds: 2,
+        created_ledger: "1200000",
+        updated_at: "2026-01-01T00:00:00.000Z",
+        deadline_ledger: 1_441_920,
+        round_deadline_ledgers: "120960",
+      },
+      member: {
+        payout_order: 0,
+        join_order: 1,
+        collateral: "100000000",
+        defaults: 0,
+        joined_at: "2026-01-01T00:00:00.000Z",
+        reputation_score: 3,
+        total_contributions: 2,
+      },
+    },
+  ],
+  pagination: { page: 1, limit: 20, total: 1, totalPages: 1, hasMore: false },
+};
+
+/** GET /members/:member/circles — member with no circles */
+export const MEMBER_CIRCLES_EMPTY_FIXTURE = {
+  circles: [],
+  pagination: { page: 1, limit: 20, total: 0, totalPages: 0, hasMore: false },
+};
+
+/** GET /circles/:address/activity — circle event timeline */
+export const CIRCLE_ACTIVITY_FIXTURE = {
+  circle_address: CIRCLE,
+  events: [
+    {
+      type: "circle_contribute",
+      actor: MEMBER_A,
+      round: 0,
+      amount: "100000000",
+      penalty: null,
+      tx_hash: TX_B,
+      ledger: 1_240_000,
+      event_position: 0,
+      id: "1240000-0-1",
+      timestamp: "2026-01-02T00:00:00.000Z",
+    },
+    {
+      type: "circle_payout",
+      actor: MEMBER_A,
+      round: 0,
+      amount: "200000000",
+      penalty: null,
+      tx_hash: TX_A,
+      ledger: 1_250_000,
+      event_position: 2,
+      id: "1250000-2-2",
+      timestamp: "2026-01-02T01:00:00.000Z",
+    },
+    {
+      type: "circle_default",
+      actor: MEMBER_B,
+      round: 1,
+      amount: null,
+      penalty: "10000000",
+      tx_hash: TX_C,
+      ledger: 1_290_000,
+      event_position: 1,
+      id: "1290000-1-3",
+      timestamp: "2026-01-03T00:00:00.000Z",
+    },
+  ],
+  pagination: { page: 1, limit: 50, total: 3, totalPages: 1, hasMore: false },
+};
+
+/** GET /circles/:address/activity — circle with no recorded events */
+export const CIRCLE_ACTIVITY_EMPTY_FIXTURE = {
+  circle_address: CIRCLE,
+  events: [],
+  pagination: { page: 1, limit: 50, total: 0, totalPages: 0, hasMore: false },
+};

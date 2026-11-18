@@ -436,7 +436,7 @@ export function buildDiagnosticsBundle(
       // txHash is validated public hash — the value is in the UI; we only need to
       // know whether a hash was produced at all, and even that is conveyed by
       // the "kind" / "code" (on-chain failure vs. pre-submission failure).
-      ...(typeof txHash === 'string' && /^[a-fA-F0-9]{64}$/.test(txHash) ? { txHash: txHash.toLowerCase() } : {}),
+      ...(typeof txHash === 'string' && /^[a-fA-F0-9]{64}$/.test(txHash) ? { txHash: "[redacted:hash]" } : {}),
     };
   }
 
@@ -452,8 +452,8 @@ export function buildDiagnosticsBundle(
       env:             envRecord,
     },
     browser: {
-      userAgent: "",
-      language:  "",
+      userAgent: nav?.userAgent ?? "",
+      language:  nav?.language  ?? "",
       online,
     },
     ...(errorSection !== undefined ? { error: errorSection } : {}),

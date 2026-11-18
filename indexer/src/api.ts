@@ -13,6 +13,14 @@ import { requestTracing } from "./requestTracing";
  * GET /circles/:address                → circle detail + members + rounds
  * GET /circles/:address/members        → members with reputation, contribution counts, and current-round status
  * GET /circles/:address/rounds         → all rounds grouped by round_index: payouts + contributions + defaults
+ * GET /circles/:address/activity       → chronological event feed (join, contribute, payout, default, lifecycle)
+ *                                        ordered by ledger ASC, event_position ASC; paginated
+ *                                        ?page=  positive integer (default: 1)
+ *                                        ?limit= 1–100 (default: 50)
+ * GET /members/:member/circles         → circles the member belongs to (paginated, optional ?status=)
+ *                                        ?status=  Pending|Active|Completed|Cancelled|Closed
+ *                                        ?page=    positive integer (default: 1)
+ *                                        ?limit=   1–100 (default: 20)
  * GET /members/:member/contributions   → member contribution history (optional ?circle=)
  * GET /reputation/:member              → member reputation score
  * GET /circles/:address/export.csv     → CSV of public member, contribution, default and payout
@@ -984,6 +992,321 @@ export function createApp(options: { cachedMigrationHealth?: MigrationHealth | n
   });
 
   // ── Member contribution history endpoint (#541) ───────────────────────────────
+  //
+  // ── Member circles endpoint (#dashboard) ────────────────────────────────────
+  //
+  // Returns all circles a wallet address belongs to as a member, paged.
+  // Each item is a { circle, member } pair so the caller can display both
+  // circle status and per-member participation (collateral, defaults,
+  // reputation, contributions) in a single request.
+  //
+  // Optional ?status= narrows to one lifecycle phase.  Missing members yield
+  // an empty list (not 404) — the caller can distinguish "no circles" from
+  // "indexer outage" via the response envelope.
+  //
+  // Rate-limited at the history tier (paginated join is moderately expensive).
+
+  app.get("/members/:member/circles", historyRateLimiter, async (req: Request, res: Response) => {
+    const memberResult = parseAddress(req.params.member, "Member address");
+    if (isParseError(memberResult)) {
+      res.status(400).json({ error: memberResult.error });
+      return;
+    }
+    const member = memberResult;
+
+    const pageResult  = parsePage(req.query.page);
+    const limitResult = parseLimit(req.query.limit);
+    const statusResult = parseStatus(req.query.status);
+
+    const errors = [pageResult, limitResult, statusResult]
+      .filter(isParseError)
+      .map((r) => r.error);
+    if (errors.length > 0) {
+      res.status(400).json({ error: errors.join("; ") });
+      return;
+    }
+
+    const page   = pageResult  as number;
+    const limit  = limitResult as number;
+    const status = statusResult as CircleStatus | undefined;
+    const offset = (page - 1) * limit;
+
+    const statusClause = status ? "AND c.status = $2" : "";
+    const baseParams: (string | number)[] = status
+      ? [member, status]
+      : [member];
+
+    try {
+      const [rows, countRow] = await Promise.all([
+        query<{
+          address: string;
+          creator: string;
+          round_amount: string;
+          member_count: number;
+          status: string;
+          current_round: number;
+          total_rounds: number;
+          created_ledger: string;
+          updated_at: string;
+          deadline_ledger: number | null;
+          round_deadline_ledgers: number | null;
+          // member fields
+          payout_order: number;
+          join_order: number | null;
+          collateral: string;
+          defaults: number;
+          joined_at: string | null;
+          reputation_score: number | null;
+          total_contributions: string;
+        }>(
+          `SELECT
+             c.address, c.creator, c.round_amount, c.member_count,
+             c.status, c.current_round, c.total_rounds, c.created_ledger,
+             c.updated_at, c.round_deadline_ledgers,
+             -- Approximate deadline: created_ledger + (current_round+1)*round_deadline_ledgers
+             CASE
+               WHEN c.round_deadline_ledgers IS NOT NULL AND c.status = 'Active'
+               THEN c.created_ledger + (c.current_round + 1) * c.round_deadline_ledgers
+               ELSE NULL
+             END AS deadline_ledger,
+             cm.payout_order, cm.join_order, cm.collateral,
+             cm.defaults, cm.joined_at,
+             r.score AS reputation_score,
+             COALESCE(
+               (SELECT COUNT(*) FROM contributions co
+                WHERE co.circle_address = cm.circle_address
+                  AND co.member_address = cm.member_address),
+               0
+             ) AS total_contributions
+           FROM circle_members cm
+           JOIN circles c ON c.address = cm.circle_address
+           LEFT JOIN reputation r ON r.member_address = cm.member_address
+           WHERE cm.member_address = $1
+             ${statusClause}
+           ORDER BY c.updated_at DESC, c.address ASC
+           LIMIT $${baseParams.length + 1} OFFSET $${baseParams.length + 2}`,
+          [...baseParams, limit, offset],
+        ),
+        queryExact<{ count: string }>(
+          `SELECT COUNT(*)::text AS count
+           FROM circle_members cm
+           JOIN circles c ON c.address = cm.circle_address
+           WHERE cm.member_address = $1
+             ${status ? "AND c.status = $2" : ""}`,
+          status ? [member, status] : [member],
+        ),
+      ]);
+
+      const total      = Number(countRow.count);
+      const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+
+      res.json({
+        circles: rows.map((row) => ({
+          circle: {
+            address:                row.address,
+            creator:                row.creator,
+            round_amount:           row.round_amount,
+            member_count:           row.member_count,
+            status:                 row.status,
+            current_round:          row.current_round,
+            total_rounds:           row.total_rounds,
+            created_ledger:         row.created_ledger,
+            updated_at:             row.updated_at,
+            deadline_ledger:        row.deadline_ledger,
+            round_deadline_ledgers: row.round_deadline_ledgers,
+          },
+          member: {
+            payout_order:        row.payout_order,
+            join_order:          row.join_order,
+            collateral:          row.collateral,
+            defaults:            row.defaults,
+            joined_at:           row.joined_at,
+            reputation_score:    row.reputation_score,
+            total_contributions: Number(row.total_contributions),
+          },
+        })),
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasMore: page < totalPages,
+        },
+      });
+    } catch (err) {
+      console.error(
+        `[api] Failed to load circles for member ${redactAddress(member)}`,
+        err,
+      );
+      sendError(res, 500, "Failed to load member circles", getErrorMessage(err));
+    }
+  });
+
+  // ── Circle activity feed endpoint (#timeline) ─────────────────────────────
+  //
+  // Chronological event feed for a single circle.  Merges contributions,
+  // defaults, and payouts from the relational tables into a single ordered
+  // sequence sorted by ledger ASC, then by event kind (contribution before
+  // payout within the same ledger), then by id ASC as a stable tie-breaker.
+  //
+  // Each entry carries the raw amount / penalty string, tx hash, ledger, and
+  // created_at so the UI can render "Indexed · ledger N" without a second
+  // fetch and can link to Stellar Expert.  Actor is the member_address for
+  // contributions and defaults, and the recipient for payouts.
+  //
+  // Bounded: ?limit= max 100 (default 50).  Paginated with the standard
+  // pagination envelope so the client can load older events on demand.
+  //
+  // Note: this endpoint returns projected relational data only.  It does NOT
+  // decode raw XDR or expose event payloads.  The `type` field uses the same
+  // event-type strings recognised by the app's normaliseEventCategory mapper,
+  // so the CircleTimeline component can categorise them without changes.
+
+  app.get("/circles/:address/activity", historyRateLimiter, async (req: Request, res: Response) => {
+    const addressResult = parseAddress(req.params.address, "Circle address");
+    if (isParseError(addressResult)) {
+      res.status(400).json({ error: addressResult.error });
+      return;
+    }
+    const address = addressResult;
+
+    const pageResult  = parsePage(req.query.page);
+    const limitResult = parseLimit(req.query.limit);
+    if (isParseError(pageResult) || isParseError(limitResult)) {
+      res.status(400).json({
+        error: [pageResult, limitResult].filter(isParseError).map((r) => r.error).join("; "),
+      });
+      return;
+    }
+    const page   = pageResult  as number;
+    const limit  = Math.min(limitResult as number, 100);
+    const offset = (page - 1) * limit;
+
+    try {
+      const circle = await queryOne<Pick<CircleRow, "address">>(
+        `SELECT address FROM circles WHERE address = $1`,
+        [address],
+      );
+      if (!circle) {
+        res.status(404).json({
+          error: "Circle not found",
+          detail:
+            `No circle with address '${address}' has been indexed yet. ` +
+            `The circle may not exist on-chain, or the indexer may not have ` +
+            `processed the factory/circle_created event for this address.`,
+          address,
+        });
+        return;
+      }
+
+      // Unified event feed: contributions + defaults + payouts, ordered
+      // deterministically by (ledger ASC, kind_order ASC, id ASC).
+      // kind_order ensures payouts sort after same-ledger contributions/defaults.
+      const eventsSql = `
+        SELECT
+          'circle_contribute'  AS type,
+          member_address       AS actor,
+          round_index          AS round,
+          amount::text         AS amount,
+          NULL::text           AS penalty,
+          tx_hash,
+          ledger::bigint       AS ledger,
+          0                    AS event_position,
+          id                   AS sort_id,
+          created_at           AS timestamp
+        FROM contributions WHERE circle_address = $1
+        UNION ALL
+        SELECT
+          'circle_default'     AS type,
+          member_address       AS actor,
+          round_index          AS round,
+          NULL::text           AS amount,
+          penalty::text        AS penalty,
+          tx_hash,
+          ledger::bigint       AS ledger,
+          1                    AS event_position,
+          id                   AS sort_id,
+          created_at           AS timestamp
+        FROM defaults WHERE circle_address = $1
+        UNION ALL
+        SELECT
+          'circle_payout'      AS type,
+          recipient            AS actor,
+          round_index          AS round,
+          amount::text         AS amount,
+          NULL::text           AS penalty,
+          tx_hash,
+          ledger::bigint       AS ledger,
+          2                    AS event_position,
+          id                   AS sort_id,
+          created_at           AS timestamp
+        FROM payouts WHERE circle_address = $1
+      `;
+
+      const [events, countRow] = await Promise.all([
+        query<{
+          type: string;
+          actor: string;
+          round: number;
+          amount: string | null;
+          penalty: string | null;
+          tx_hash: string;
+          ledger: string;
+          event_position: number;
+          sort_id: number;
+          timestamp: string;
+        }>(
+          `SELECT type, actor, round, amount, penalty, tx_hash, ledger,
+                  event_position, sort_id, timestamp
+           FROM (${eventsSql}) ev
+           ORDER BY ledger ASC, event_position ASC, sort_id ASC
+           LIMIT $2 OFFSET $3`,
+          [address, limit, offset],
+        ),
+        queryExact<{ count: string }>(
+          `SELECT COUNT(*)::text AS count FROM (${eventsSql}) ev`,
+          [address],
+        ),
+      ]);
+
+      const total      = Number(countRow.count);
+      const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+
+      res.json({
+        circle_address: address,
+        events: events.map((ev, i) => ({
+          type:           ev.type,
+          actor:          ev.actor,
+          round:          ev.round,
+          amount:         ev.type === "circle_payout" || ev.type === "circle_contribute"
+                            ? ev.amount
+                            : null,
+          penalty:        ev.type === "circle_default" ? ev.penalty : null,
+          tx_hash:        ev.tx_hash,
+          ledger:         Number(ev.ledger),
+          event_position: ev.event_position,
+          // Stable id for deterministic React keys: ledger-position-sort_id
+          id:             `${ev.ledger}-${ev.event_position}-${ev.sort_id}`,
+          timestamp:      ev.timestamp,
+        })),
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasMore: page < totalPages,
+        },
+      });
+    } catch (err) {
+      console.error(
+        `[api] Failed to load activity for circle ${redactAddress(address)}`,
+        err,
+      );
+      sendError(res, 500, "Failed to load circle activity", getErrorMessage(err));
+    }
+  });
+
+  // ── Member contribution history (#541) ────────────────────────────────────
   //
   // Read-only ledger of every indexed contribution for a member. Unlike
   // /reputation/:member (which returns per-circle counts) and

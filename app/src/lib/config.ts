@@ -324,6 +324,16 @@ export function resolveNetworkName(passphrase: string): string {
 export const ACTIVE_NETWORK: string = resolveNetworkName(NETWORK_PASSPHRASE);
 
 /**
+ * Human-readable label for the active network (e.g. "Testnet", "Mainnet").
+ * Used in reports, dialogs, and user-facing messages.
+ */
+export const ACTIVE_NETWORK_LABEL: string = ACTIVE_NETWORK === "mainnet"
+  ? "Mainnet"
+  : ACTIVE_NETWORK === "testnet"
+  ? "Testnet"
+  : "Custom Network";
+
+/**
  * Build a Stellar Expert explorer URL for a transaction, account, or contract.
  *
  * The link always matches the requested network (mainnet maps to the explorer's
