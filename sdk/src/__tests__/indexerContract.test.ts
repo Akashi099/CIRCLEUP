@@ -19,10 +19,14 @@ import {
 } from "../indexerSchema";
 import {
   AUDIT_EVENTS_FIXTURE,
+  CIRCLE_ACTIVITY_EMPTY_FIXTURE,
+  CIRCLE_ACTIVITY_FIXTURE,
   CIRCLE_DETAIL_FIXTURE,
   CIRCLES_LIST_FIXTURE,
   HEALTH_FIXTURE,
   INDEXER_STATE_FIXTURE,
+  MEMBER_CIRCLES_EMPTY_FIXTURE,
+  MEMBER_CIRCLES_FIXTURE,
   MEMBER_CONTRIBUTIONS_FIXTURE,
   MEMBERS_FIXTURE,
   REPUTATION_FIXTURE,
@@ -31,16 +35,20 @@ import {
 } from "./indexerResponseFixtures";
 
 const FIXTURES: Array<[IndexerEndpointName, string, unknown]> = [
-  ["circlesList", "GET /circles", CIRCLES_LIST_FIXTURE],
-  ["circleDetail", "GET /circles/:address", CIRCLE_DETAIL_FIXTURE],
-  ["members", "GET /circles/:address/members", MEMBERS_FIXTURE],
-  ["rounds", "GET /circles/:address/rounds", ROUNDS_FIXTURE],
-  ["memberContributions", "GET /members/:member/contributions", MEMBER_CONTRIBUTIONS_FIXTURE],
-  ["reputation", "GET /reputation/:member", REPUTATION_FIXTURE],
-  ["reputation", "GET /reputation/:member (unknown member)", REPUTATION_UNKNOWN_MEMBER_FIXTURE],
-  ["auditEvents", "GET /circles/:address/audit", AUDIT_EVENTS_FIXTURE],
-  ["health", "GET /health", HEALTH_FIXTURE],
-  ["indexerState", "GET /indexer/state", INDEXER_STATE_FIXTURE],
+  ["circlesList",          "GET /circles",                              CIRCLES_LIST_FIXTURE],
+  ["circleDetail",         "GET /circles/:address",                     CIRCLE_DETAIL_FIXTURE],
+  ["members",              "GET /circles/:address/members",             MEMBERS_FIXTURE],
+  ["rounds",               "GET /circles/:address/rounds",              ROUNDS_FIXTURE],
+  ["memberContributions",  "GET /members/:member/contributions",        MEMBER_CONTRIBUTIONS_FIXTURE],
+  ["memberCircles",        "GET /members/:member/circles",              MEMBER_CIRCLES_FIXTURE],
+  ["memberCircles",        "GET /members/:member/circles (empty)",      MEMBER_CIRCLES_EMPTY_FIXTURE],
+  ["circleActivity",       "GET /circles/:address/activity",           CIRCLE_ACTIVITY_FIXTURE],
+  ["circleActivity",       "GET /circles/:address/activity (empty)",   CIRCLE_ACTIVITY_EMPTY_FIXTURE],
+  ["reputation",           "GET /reputation/:member",                   REPUTATION_FIXTURE],
+  ["reputation",           "GET /reputation/:member (unknown member)", REPUTATION_UNKNOWN_MEMBER_FIXTURE],
+  ["auditEvents",          "GET /circles/:address/audit",              AUDIT_EVENTS_FIXTURE],
+  ["health",               "GET /health",                              HEALTH_FIXTURE],
+  ["indexerState",         "GET /indexer/state",                       INDEXER_STATE_FIXTURE],
 ];
 
 /** Deep clone so mutation tests never leak into other cases. */

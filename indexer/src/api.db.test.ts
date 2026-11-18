@@ -746,4 +746,286 @@ if (hasDb) {
       assert.equal((await pool.query("SELECT COUNT(*)::int AS count FROM contributions WHERE circle_address = $1", [address])).rows[0].count, 101);
     } finally { await cleanCircle(address); }
   });
+
+  // ── GET /members/:member/circles (#dashboard) ─────────────────────────────────
+
+  test("GET /members/:member/circles returns empty list for a member with no circles", async () => {
+    const member = fixtureMemberAddress("no-circles-member");
+    const res = await request(app).get(`/members/${member}/circles`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.circles, [], "circles must be empty for a member with no memberships");
+    assert.equal(res.body.pagination.total, 0);
+  });
+
+  test("GET /members/:member/circles returns circles the member belongs to", async () => {
+    const addr1  = fixtureContractAddress("member-circles-a");
+    const addr2  = fixtureContractAddress("member-circles-b");
+    const member = fixtureMemberAddress("member-circles-member");
+    await seedCircle(addr1, { status: "Active" });
+    await seedCircle(addr2, { status: "Pending" });
+    await seedMember(addr1, member, 0);
+    await seedMember(addr2, member, 0);
+
+    try {
+      const res = await request(app).get(`/members/${member}/circles`);
+      assert.equal(res.status, 200);
+      assert.equal(res.body.pagination.total, 2, "must find both circles");
+      const addresses = res.body.circles.map((c: { circle: { address: string } }) => c.circle.address);
+      assert.ok(addresses.includes(addr1), "addr1 must be in result");
+      assert.ok(addresses.includes(addr2), "addr2 must be in result");
+    } finally {
+      await cleanCircle(addr1);
+      await cleanCircle(addr2);
+    }
+  });
+
+  test("GET /members/:member/circles response includes circle and member sub-objects", async () => {
+    const addr   = fixtureContractAddress("member-circles-shape");
+    const member = fixtureMemberAddress("member-circles-shape-member");
+    await seedCircle(addr, { status: "Active" });
+    await seedMember(addr, member, 0);
+
+    try {
+      const res = await request(app).get(`/members/${member}/circles`);
+      assert.equal(res.status, 200);
+      assert.equal(res.body.circles.length, 1);
+      const item = res.body.circles[0];
+      // circle sub-object has the standard circle row fields
+      assert.equal(typeof item.circle,          "object", "circle sub-object must be present");
+      assert.equal(item.circle.address,         addr,     "circle.address must match");
+      assert.equal(typeof item.circle.status,   "string", "circle.status must be a string");
+      // member sub-object has participation fields
+      assert.equal(typeof item.member,          "object", "member sub-object must be present");
+      assert.equal(typeof item.member.collateral, "string", "member.collateral must be a string");
+      assert.equal(typeof item.member.defaults,   "number", "member.defaults must be a number");
+      assert.equal(
+        typeof item.member.total_contributions,
+        "number",
+        "member.total_contributions must be a number",
+      );
+    } finally {
+      await cleanCircle(addr);
+    }
+  });
+
+  test("GET /members/:member/circles filters by ?status=", async () => {
+    const addrA  = fixtureContractAddress("member-circles-status-a");
+    const addrB  = fixtureContractAddress("member-circles-status-b");
+    const member = fixtureMemberAddress("member-circles-status-member");
+    await seedCircle(addrA, { status: "Active" });
+    await seedCircle(addrB, { status: "Pending" });
+    await seedMember(addrA, member, 0);
+    await seedMember(addrB, member, 0);
+
+    try {
+      const res = await request(app).get(`/members/${member}/circles?status=Active`);
+      assert.equal(res.status, 200);
+      const addresses = res.body.circles.map((c: { circle: { address: string } }) => c.circle.address);
+      assert.ok(addresses.includes(addrA),  "Active circle must be included");
+      assert.ok(!addresses.includes(addrB), "Pending circle must be excluded by status filter");
+    } finally {
+      await cleanCircle(addrA);
+      await cleanCircle(addrB);
+    }
+  });
+
+  test("GET /members/:member/circles returns 400 for invalid address", async () => {
+    const res = await request(app).get("/members/not-a-stellar-address/circles");
+    assert.equal(res.status, 400);
+  });
+
+  test("GET /members/:member/circles returns 400 for invalid status", async () => {
+    const member = fixtureMemberAddress("member-circles-bad-status");
+    const res = await request(app).get(`/members/${member}/circles?status=NotAStatus`);
+    assert.equal(res.status, 400);
+  });
+
+  test("GET /members/:member/circles pagination works", async () => {
+    const addrs  = ["mc-page-a", "mc-page-b", "mc-page-c"].map(fixtureContractAddress);
+    const member = fixtureMemberAddress("member-circles-pagination");
+    for (const addr of addrs) {
+      await seedCircle(addr);
+      await seedMember(addr, member, 0);
+    }
+
+    try {
+      const page1 = await request(app).get(`/members/${member}/circles?limit=2&page=1`);
+      const page2 = await request(app).get(`/members/${member}/circles?limit=2&page=2`);
+      assert.equal(page1.status, 200);
+      assert.equal(page2.status, 200);
+      assert.equal(page1.body.circles.length, 2);
+      // Page 1 and page 2 must not share the same first circle
+      if (page2.body.circles.length > 0) {
+        assert.notEqual(
+          page1.body.circles[0].circle.address,
+          page2.body.circles[0].circle.address,
+          "page 2 must start where page 1 ended",
+        );
+      }
+    } finally {
+      for (const addr of addrs) await cleanCircle(addr);
+    }
+  });
+
+  test("GET /members/:member/circles includes total_contributions for the member", async () => {
+    const addr   = fixtureContractAddress("member-circles-contrib");
+    const member = fixtureMemberAddress("member-circles-contrib-member");
+    await seedCircle(addr, { status: "Active", currentRound: 1 });
+    await seedMember(addr, member, 0);
+    await seedContribution(addr, member, 0, 1001);
+    await seedContribution(addr, member, 1, 1002);
+
+    try {
+      const res = await request(app).get(`/members/${member}/circles`);
+      assert.equal(res.status, 200);
+      const item = res.body.circles.find(
+        (c: { circle: { address: string } }) => c.circle.address === addr,
+      );
+      assert.ok(item, "circle must be in result");
+      assert.equal(item.member.total_contributions, 2, "must count both contributions");
+    } finally {
+      await cleanCircle(addr);
+    }
+  });
+
+  // ── GET /circles/:address/activity (#timeline) ───────────────────────────────
+
+  test("GET /circles/:address/activity returns 200 with empty events for a circle with no activity", async () => {
+    const addr = fixtureContractAddress("activity-empty-circle");
+    await seedCircle(addr);
+    try {
+      const res = await request(app).get(`/circles/${addr}/activity`);
+      assert.equal(res.status, 200);
+      assert.deepEqual(res.body.events, [], "events must be empty with no activity");
+      assert.equal(res.body.circle_address, addr);
+      assert.equal(res.body.pagination.total, 0);
+    } finally {
+      await cleanCircle(addr);
+    }
+  });
+
+  test("GET /circles/:address/activity returns 404 for unknown circle", async () => {
+    const res = await request(app).get(
+      `/circles/${fixtureContractAddress("activity-unknown-circle")}/activity`,
+    );
+    assert.equal(res.status, 404);
+  });
+
+  test("GET /circles/:address/activity returns events with ledger and type fields", async () => {
+    const addr   = fixtureContractAddress("activity-with-events");
+    const member = fixtureMemberAddress("activity-with-events-member");
+    await seedCircle(addr, { status: "Active", currentRound: 0 });
+    await seedMember(addr, member, 0);
+    await seedContribution(addr, member, 0, 2000);
+
+    try {
+      const res = await request(app).get(`/circles/${addr}/activity`);
+      assert.equal(res.status, 200);
+      assert.ok(res.body.events.length >= 1, "must have at least one event");
+      const ev = res.body.events[0];
+      assert.equal(typeof ev.type,           "string",  "type must be a string");
+      assert.equal(typeof ev.actor,          "string",  "actor must be a string");
+      assert.equal(typeof ev.ledger,         "number",  "ledger must be a number");
+      assert.equal(typeof ev.event_position, "number",  "event_position must be a number");
+      assert.equal(typeof ev.round,          "number",  "round must be a number");
+      assert.equal(typeof ev.id,             "string",  "id must be a string");
+    } finally {
+      await cleanCircle(addr);
+    }
+  });
+
+  test("GET /circles/:address/activity events are ordered by ledger ASC", async () => {
+    const addr    = fixtureContractAddress("activity-ordered");
+    const member1 = fixtureMemberAddress("activity-ordered-m1");
+    const member2 = fixtureMemberAddress("activity-ordered-m2");
+    await seedCircle(addr, { status: "Active", currentRound: 0 });
+    await seedMember(addr, member1, 0);
+    await seedMember(addr, member2, 1);
+    await seedContribution(addr, member1, 0, 1000);
+    await seedContribution(addr, member2, 0, 2000);
+
+    try {
+      const res = await request(app).get(`/circles/${addr}/activity`);
+      assert.equal(res.status, 200);
+      assert.ok(res.body.events.length >= 2, "must have at least 2 events");
+      const ledgers = res.body.events.map((e: { ledger: number }) => e.ledger);
+      for (let i = 1; i < ledgers.length; i++) {
+        assert.ok(
+          ledgers[i] >= ledgers[i - 1],
+          `events must be in ascending ledger order: ${ledgers[i - 1]} > ${ledgers[i]}`,
+        );
+      }
+    } finally {
+      await cleanCircle(addr);
+    }
+  });
+
+  test("GET /circles/:address/activity includes payout event with type=circle_payout", async () => {
+    const addr   = fixtureContractAddress("activity-payout");
+    const member = fixtureMemberAddress("activity-payout-member");
+    await seedCircle(addr, { status: "Active", currentRound: 1, totalRounds: 2 });
+    await seedMember(addr, member, 0);
+    // Seed a completed payout
+    await pool.query(
+      `INSERT INTO payouts
+         (circle_address, recipient, round_index, amount, tx_hash, ledger)
+       VALUES ($1, $2, 0, 200, 'activity-payout-tx', 1500)
+       ON CONFLICT DO NOTHING`,
+      [addr, member],
+    );
+
+    try {
+      const res = await request(app).get(`/circles/${addr}/activity`);
+      assert.equal(res.status, 200);
+      const payout = res.body.events.find(
+        (e: { type: string }) => e.type === "circle_payout",
+      );
+      assert.ok(payout, "payout event must appear in activity feed");
+      assert.equal(payout.actor, member, "payout actor must be the recipient");
+    } finally {
+      await pool.query("DELETE FROM payouts WHERE circle_address = $1", [addr]);
+      await cleanCircle(addr);
+    }
+  });
+
+  test("GET /circles/:address/activity pagination works", async () => {
+    const addr   = fixtureContractAddress("activity-pagination");
+    const member = fixtureMemberAddress("activity-pagination-member");
+    await seedCircle(addr, { status: "Active", currentRound: 5 });
+    await seedMember(addr, member, 0);
+    for (let i = 0; i < 5; i++) {
+      await seedContribution(addr, member, i, 3000 + i);
+    }
+
+    try {
+      const page1 = await request(app).get(`/circles/${addr}/activity?limit=2&page=1`);
+      const page2 = await request(app).get(`/circles/${addr}/activity?limit=2&page=2`);
+      assert.equal(page1.status, 200);
+      assert.equal(page2.status, 200);
+      assert.equal(page1.body.events.length, 2, "page 1 must have 2 events");
+      assert.equal(page1.body.pagination.total, 5, "total must be 5");
+      assert.equal(page1.body.pagination.hasMore, true, "hasMore must be true on page 1");
+      // Pages must not overlap
+      if (page2.body.events.length > 0) {
+        assert.notEqual(
+          page1.body.events[0].id,
+          page2.body.events[0].id,
+          "pages must not share the same first event",
+        );
+      }
+    } finally {
+      await cleanCircle(addr);
+    }
+  });
+
+  test("GET /circles/:address/activity returns 400 for invalid limit", async () => {
+    const addr = fixtureContractAddress("activity-invalid-limit");
+    await seedCircle(addr);
+    try {
+      const res = await request(app).get(`/circles/${addr}/activity?limit=abc`);
+      assert.equal(res.status, 400);
+    } finally {
+      await cleanCircle(addr);
+    }
+  });
 }

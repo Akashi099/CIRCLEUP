@@ -79,3 +79,42 @@ test("member contributions endpoint includes totalAmount and hasMore in response
   assert.match(source, /totalAmount/);
   assert.match(source, /hasMore/);
 });
+
+test("member circles endpoint is documented in module header (#dashboard)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const source = fs.readFileSync(path.join(__dirname, "api.ts"), "utf8");
+  assert.match(source, /GET \/members\/:member\/circles/);
+  assert.match(source, /app\.get\("\/members\/:member\/circles"/);
+  assert.match(source, /Failed to load member circles/);
+});
+
+test("circle activity endpoint is documented in module header (#timeline)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const source = fs.readFileSync(path.join(__dirname, "api.ts"), "utf8");
+  assert.match(source, /GET \/circles\/:address\/activity/);
+  assert.match(source, /app\.get\("\/circles\/:address\/activity"/);
+  assert.match(source, /Failed to load circle activity/);
+});
+
+test("circle activity endpoint returns events with ledger, event_position, and type fields (#timeline)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const source = fs.readFileSync(path.join(__dirname, "api.ts"), "utf8");
+  // Verify the SQL aliases used in the UNION ALL
+  assert.match(source, /circle_contribute/);
+  assert.match(source, /circle_payout/);
+  assert.match(source, /circle_default/);
+  assert.match(source, /event_position/);
+});
+
+test("member circles endpoint returns circle and member sub-objects (#dashboard)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const source = fs.readFileSync(path.join(__dirname, "api.ts"), "utf8");
+  // Verify the response structure fields are present in source
+  assert.match(source, /total_contributions/);
+  assert.match(source, /reputation_score/);
+  assert.match(source, /payout_order/);
+});

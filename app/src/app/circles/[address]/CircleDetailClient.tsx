@@ -33,7 +33,7 @@ import {
   invalidCircleAddress,
   DATA_STATE_MSGS,
 } from "@/lib/messages";
-// G��G��G�� Shared response contracts (Issue #513) G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+// GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Shared response contracts (Issue #513) GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
 //
 // All circle API types and runtime parsers now live in lib/circleTypes.ts,
 // which is the single source of truth for the app layer. They mirror the
@@ -63,7 +63,7 @@ export type { PendingDefault as CirclePendingDefault } from "@/lib/circleTypes";
 // --- Feature panels (Issues: join intro, timeline, member round summary) ------
 import { buildJoinIntroContent } from "@/lib/joinIntro";
 import { JoinIntroBanner } from "@/components/JoinIntroBanner";
-import { CircleTimeline } from "@/components/CircleTimeline";
+import { CircleActivityTimeline } from "@/components/CircleActivityTimeline";
 import { computeMemberRoundSummary } from "@/lib/memberRoundSummary";
 import { MemberRoundSummary } from "@/components/MemberRoundSummary";
 
@@ -88,22 +88,22 @@ export { computeDataReadiness } from "@/lib/circleDetailState";
 export { DEADLINE_MAX_DATA_AGE_MS as MAX_DATA_AGE_MS } from "@/lib/deadline";
 import { isRetryableError } from "@/lib/circleDetailState";
 
-// G��G��G�� WorkflowBanner G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+// GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ WorkflowBanner GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
 //
 // Issue #497: Inline workflow explanations for join and contribute actions.
 //
 // The banner contextualises the action buttons so users understand:
-//   G�� What the action does (semantics, not just the button label)
-//   G�� What will happen on-chain (collateral, pot pooling, rotation)
-//   G�� What the outcome will be for them personally
-//   G�� Any prerequisites they need to be aware of
+//   GÃ¯Â¿Â½Ã¯Â¿Â½ What the action does (semantics, not just the button label)
+//   GÃ¯Â¿Â½Ã¯Â¿Â½ What will happen on-chain (collateral, pot pooling, rotation)
+//   GÃ¯Â¿Â½Ã¯Â¿Â½ What the outcome will be for them personally
+//   GÃ¯Â¿Â½Ã¯Â¿Â½ Any prerequisites they need to be aware of
 //
-// Each case is distinct and complete. The banners are intentionally verbose G��
+// Each case is distinct and complete. The banners are intentionally verbose GÃ¯Â¿Â½Ã¯Â¿Â½
 // a savings-circle user may be new to on-chain protocols and needs more than
 // a one-liner to make an informed decision about locking real funds.
 
 
-// G��G��G�� getMemberContributionStatus G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+// GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ getMemberContributionStatus GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
 //
 // Issue #498: Improve member contribution state display in rotation order.
 //
@@ -125,7 +125,7 @@ import { isRetryableError } from "@/lib/circleDetailState";
 // show "waiting" rather than a misleading "pending" badge.
 
 
-import { getMemberContributionStatus, buildTimelineEvents } from "@/lib/circleDetailHelpers";
+import { getMemberContributionStatus } from "@/lib/circleDetailHelpers";
 
 export async function fetchCircleData(
   circleAddress: string,
@@ -146,7 +146,7 @@ export async function fetchCircleData(
       indexerFetch(roundsUrl, { cache: "no-store", signal }),
     ]);
   } catch (err) {
-    // AbortError is not a real failure G�� the component unmounted during refresh
+    // AbortError is not a real failure GÃ¯Â¿Â½Ã¯Â¿Â½ the component unmounted during refresh
     if (err instanceof DOMException && err.name === "AbortError") {
       return { ok: false, error: "network" };
     }
@@ -210,7 +210,7 @@ export async function fetchCircleData(
           ? circleJson.latestLedger
           : null,
       // checkpointTime: ISO-8601 timestamp the indexer embeds to indicate when
-      // it last durably processed a ledger. Absent from older indexer versions �
+      // it last durably processed a ledger. Absent from older indexer versions Ã¯Â¿Â½
       // callers must treat null as "unknown freshness", never as healthy.
       checkpointTime:
         typeof circleJson.checkpointTime === "string" && circleJson.checkpointTime.trim() !== ""
@@ -221,10 +221,10 @@ export async function fetchCircleData(
   };
 }
 
-// G��G��G�� Main client component G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+// GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Main client component GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
 
 export function CircleDetailClient({ circleAddress, circleData }: Props) {
-  // G��G�� Wallet load state G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+  // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Wallet load state GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
   //
   // Distinguishes "still loading" from "not connected" so action buttons don't
   // flash on/off during the async wallet check.
@@ -232,7 +232,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [networkMismatch, setNetworkMismatch] = useState<NetworkMismatchResult | null>(null);
 
-  // G��G�� Circle data G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+  // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Circle data GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
   const [data, setData] = useState<CircleDetailData>(circleData);
   useEffect(() => {
     setData(circleData);
@@ -248,7 +248,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
     setDataFetchedAtMs(Date.now());
   }, [circleData]);
 
-  // G��G�� Action state G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+  // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Action state GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
   const [loading,      setLoading]      = useState<ActionKey | null>(null);
   const [errorOperation, setErrorOperation] = useState<string | undefined>(undefined);
   const [error,        setError]        = useState<string>("");
@@ -256,7 +256,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
   // failure happened on-chain after submission) so the banner can link to
   // the explorer for full diagnostics (Issue #479).
   const [errorTxHash,  setErrorTxHash]  = useState<string | null>(null);
-  // Typed error from the last failed transaction G�� passed to DiagnosticsPanel
+  // Typed error from the last failed transaction GÃ¯Â¿Â½Ã¯Â¿Â½ passed to DiagnosticsPanel
   // so the bundle captures error kind/code without exposing raw internals.
   const [errorTypedError, setErrorTypedError] = useState<ContractAppError | null>(null);
   const [success,      setSuccess]      = useState<SuccessState | null>(null);
@@ -266,7 +266,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
   // Issue #499: Guard against concurrent / duplicate submissions.
   // A ref is used (not state) because we need to read it synchronously inside
   // the async action handler without triggering a re-render. When this is true
-  // any call to doAction or doDefault is a no-op G�� the button's `disabled`
+  // any call to doAction or doDefault is a no-op GÃ¯Â¿Â½Ã¯Â¿Â½ the button's `disabled`
   // attribute should have prevented it, but this is defence-in-depth against
   // rapid double-clicks, keyboard repeats, or automated test runners.
   const submittingRef = useRef(false);
@@ -278,12 +278,12 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
   // across separate transactions.
   const txAbortRef = useRef<AbortController | null>(null);
 
-  // G��G�� UI state G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+  // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ UI state GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
   //
   // inviteUrl is intentionally initialised to null (not "") so that components
   // can distinguish "not yet resolved" from "resolved to an empty string".
   // The value is only ever set inside a useEffect, which never runs during SSR,
-  // so window.location is only accessed in the browser G�� preventing hydration
+  // so window.location is only accessed in the browser GÃ¯Â¿Â½Ã¯Â¿Â½ preventing hydration
   // mismatches and SSR crashes caused by the window object being absent on the
   // server.  The input placeholder handles the null state visually.
   const [inviteUrl,           setInviteUrl]           = useState<string | null>(null);
@@ -308,11 +308,11 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
   const [manualRefreshError, setManualRefreshError] = useState<string>("");
 
   // Issue #797: tracks whether a confirmed tx is still waiting for the
-  // indexer to ingest it. Informational only � never implies confirmation.
+  // indexer to ingest it. Informational only Ã¯Â¿Â½ never implies confirmation.
   // Cleared on the next successful refresh (manual, post-action, or push).
   const [awaitingIndex, setAwaitingIndex] = useState(false);
 
-  // G��G�� Staleness tracking G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+  // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Staleness tracking GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
   //
   // Re-evaluated every second so the stale banner appears automatically once
   // data ages past MAX_DATA_AGE_MS, even if the user hasn't interacted.
@@ -364,7 +364,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
   const errorRegionRef   = useRef<HTMLDivElement>(null);
   const successRegionRef = useRef<HTMLDivElement>(null);
 
-  // G��G�� Wallet resolution G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+  // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Wallet resolution GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
   useEffect(() => {
     let generation = 0;
     let disposed = false;
@@ -395,14 +395,14 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
     return () => { disposed = true; generation++; stop(); };
   }, []);
   // Build the invite URL client-side only.  useEffect never runs on the server,
-  // so window.location is guaranteed to exist here G�� no typeof guard needed.
+  // so window.location is guaranteed to exist here GÃ¯Â¿Â½Ã¯Â¿Â½ no typeof guard needed.
   // Keeping this in an effect (rather than useMemo) also means the URL is only
   // computed after hydration, preventing any server/client HTML mismatch.
   //
   // Address guard: circleAddress is validated by isSorobanContractId in both
   // the server page (CircleDetailPage notFound() guard) and in doAction /
   // doDefault before any contract call. We repeat the check here so the invite
-  // URL is never constructed from a malformed value G�� the prop is typed as
+  // URL is never constructed from a malformed value GÃ¯Â¿Â½Ã¯Â¿Â½ the prop is typed as
   // `string` but a caller outside the normal page render path (tests, Storybook)
   // could pass an arbitrary string.
   useEffect(() => {
@@ -423,7 +423,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
     }
   }, [success]);
 
-  // G��G�� Derived membership state G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+  // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Derived membership state GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
 
   const isMember = walletAddress
     ? data.members.some((m) => m.member_address === walletAddress)
@@ -439,11 +439,11 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
 
   const currentRound = data.circle.current_round;
 
-  // G��G�� Contribution check G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+  // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Contribution check GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
   //
   // Prefer the authoritative currentRound contributions list when available.
   // When it is absent (partial data), conservatively treat the contribution as
-  // unknown (false) G�� this means the Contribute button may appear for a member
+  // unknown (false) GÃ¯Â¿Â½Ã¯Â¿Â½ this means the Contribute button may appear for a member
   // who already contributed, but the gate will block the double-submit.
   // This is safer than the inverse: treating unknown as "already contributed"
   // would hide the button from a member who genuinely needs to contribute.
@@ -458,7 +458,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
       )
     : false;
 
-  // G��G�� Data readiness G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+  // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Data readiness GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
   //
   // "stale" is evaluated from the ticker so it flips in real-time.
   const isDataStale = nowMs - dataFetchedAtMs >= MAX_DATA_AGE_MS;
@@ -484,11 +484,11 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
   const networkWarning = networkMismatch ? describeNetworkMismatch(networkMismatch) : null;
   const myHasLockedCollateral = hasLockedCollateral;
 
-  // G��G�� Payout gate (for disabled-state display) G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+  // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Payout gate (for disabled-state display) GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
   //
   // Pre-computed with maxSnapshotAgeMs: Infinity so the "round not complete"
   // reason shows up in the button caption even when we're not about to submit.
-  // The staleness check is intentionally skipped here G�� it's handled by the
+  // The staleness check is intentionally skipped here GÃ¯Â¿Â½Ã¯Â¿Â½ it's handled by the
   // actionsEnabled gate above.
   //
   // Guard: when members[] is empty, 0 contributions >= 0 members is
@@ -519,12 +519,12 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
     );
   })();
 
-  // G��G�� Contribute gate (for disabled-state display) G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+  // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Contribute gate (for disabled-state display) GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
   //
   // Pre-computed with maxSnapshotAgeMs: Infinity so the "round already
   // contributed" / "deadline passed" reason shows up under the Contribute
   // button even when we're not about to submit. The staleness check is
-  // intentionally skipped here G�� it's handled by the actionsEnabled gate above.
+  // intentionally skipped here GÃ¯Â¿Â½Ã¯Â¿Â½ it's handled by the actionsEnabled gate above.
   const contributeGate = computeActionEligibility(
     "contribute",
     buildAppSnapshot(
@@ -580,7 +580,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
     data.latestLedger != null &&
     data.latestLedger > data.circle.deadline_ledger;
 
-  // G��G�� Manual refresh G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+  // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Manual refresh GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
   //
   // Used by the Stale and Partial data banners. Updates data in place without
   // a full page reload. On success: updates data + resets fetchedAtMs.
@@ -644,10 +644,10 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
     };
   }, [awaitingIndex, circleAddress, handleManualRefresh]);
 
-  // G��G�� Post-action refresh G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+  // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Post-action refresh GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
   //
   // Called after every successful contract write. Uses the shared fetchCircleData
-  // helper so merging is always safe G�� we replace the whole data object rather
+  // helper so merging is always safe GÃ¯Â¿Â½Ã¯Â¿Â½ we replace the whole data object rather
   // than patching fields, preventing stale sub-object leaks.
 
   async function postActionRefresh(ctrl: AbortController) {
@@ -666,7 +666,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
       // (bounded) so the page discovers the indexed change without a manual refresh.
       setAwaitingIndex(true);
     } else if (result.error === "network") {
-      // Genuine network failure after action G�� show warning
+      // Genuine network failure after action GÃ¯Â¿Â½Ã¯Â¿Â½ show warning
       setRefreshState("error");
     } else {
       // Non-fatal: the action succeeded, refresh just failed
@@ -674,7 +674,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
     }
   }
 
-  // G��G�� Action handler G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+  // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Action handler GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
 
   // Issue #698: Action messages now sourced from the centralized catalog so all
   // user-facing copy is maintained in one place.
@@ -696,7 +696,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
     // flushed the loading state.
     if (submittingRef.current) return;
 
-    // Issue #800: cross-tab UX guard � same network/circle/member/action in
+    // Issue #800: cross-tab UX guard Ã¯Â¿Â½ same network/circle/member/action in
     // another tab shows a notice instead of a second wallet prompt. Contract
     // validation remains authoritative; this never blocks on-chain truth.
     const actionLease = walletAddress
@@ -705,7 +705,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
     if (actionLease && !tryAcquireLease(actionLease)) {
       setError(
         "The same action appears to be in progress in another tab. " +
-          "Finish or cancel it there first � this guard expires automatically.",
+          "Finish or cancel it there first Ã¯Â¿Â½ this guard expires automatically.",
       );
       return;
     }
@@ -745,9 +745,9 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
     txAbortRef.current = txCtrl;
 
     try {
-      // G��G�� Stale-state gate G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+      // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Stale-state gate GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
       //
-      // Build the snapshot using dataFetchedAtMs G�� the timestamp when the
+      // Build the snapshot using dataFetchedAtMs GÃ¯Â¿Â½Ã¯Â¿Â½ the timestamp when the
       // data was actually loaded, NOT Date.now(). This is the fix for the
       // critical bug where the old code passed nowMs=Date.now() into
       // buildAppSnapshot, making fetchedAtMs === nowMs and the stale check
@@ -765,7 +765,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
         myContributedThisRound,
         currentRoundContributions,
         networkCheck,
-        dataFetchedAtMs, // G�� correct: when the data was fetched, not now
+        dataFetchedAtMs, // GÃ¯Â¿Â½Ã¯Â¿Â½ correct: when the data was fetched, not now
       );
 
       const gate = computeActionEligibility(action, snapshot);
@@ -777,7 +777,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
         return;
       }
 
-      // G��G�� Submit transaction G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+      // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Submit transaction GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
       // Pass txCtrl.signal so the polling loop can be stopped promptly when
       // the component unmounts or the user navigates away.
       const result = await invokeContract(
@@ -819,7 +819,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
     } catch (err: unknown) {
       if (txCtrl.signal.aborted) return;
       // Issue #654: handle LocalCancelResult throws from invokeContract.
-      // These are not transaction failures G�� they mean the caller stopped
+      // These are not transaction failures GÃ¯Â¿Â½Ã¯Â¿Â½ they mean the caller stopped
       // waiting.  Silently swallow them when the component is unmounting
       // (txCtrl.signal.aborted); surface a non-blocking advisory when the
       // signal fired *after* the tx was already broadcast.
@@ -831,7 +831,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
       ) {
         const cancelInfo = err.cause as LocalCancelResult;
         if (cancelInfo.submittedBeforeAbort) {
-          // Tx may still confirm G�� show an advisory so the user knows to
+          // Tx may still confirm GÃ¯Â¿Â½Ã¯Â¿Â½ show an advisory so the user knows to
           // check the explorer rather than re-submitting immediately.
           setError(
             "You stopped waiting, but the transaction may still confirm on-chain. " +
@@ -839,7 +839,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
           );
         }
         // submittedBeforeAbort=false means we cancelled cleanly before
-        // broadcast G�� no message needed, just let the UI reset below.
+        // broadcast GÃ¯Â¿Â½Ã¯Â¿Â½ no message needed, just let the UI reset below.
         return;
       }
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -858,14 +858,14 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
     }
   }
 
-  // G��G�� Action shortcuts G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+  // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Action shortcuts GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
 
   const handleJoin       = () => doAction("join",       [new Address(walletAddress!).toScVal()]);
   const handleContribute = () => doAction("contribute", [new Address(walletAddress!).toScVal()]);
   const handlePayout     = () => doAction("payout",     []);
   const handleClose      = () => doAction("close",      [new Address(walletAddress!).toScVal()]);
 
-  // G��G�� Copy helpers G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+  // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Copy helpers GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
 
   async function handleCopyInvite() {
     if (!inviteUrl) return;
@@ -965,7 +965,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
       return;
     }
 
-    // Data completeness guard � same defence-in-depth as doAction
+    // Data completeness guard Ã¯Â¿Â½ same defence-in-depth as doAction
     if (dataReadiness !== "ready") {
       setError(
         dataReadiness === "stale"
@@ -1000,7 +1000,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
       targetContributed,
       data.currentRound?.contributions.length ?? 0,
       networkCheck,
-      dataFetchedAtMs, // G�� correct: use data fetch time
+      dataFetchedAtMs, // GÃ¯Â¿Â½Ã¯Â¿Â½ correct: use data fetch time
     );
 
     const gate = computeActionEligibility("default", snapshot);
@@ -1056,7 +1056,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
     }
   }
 
-  // G��G�� Accessibility G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+  // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Accessibility GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
   //
   // The progressAnnouncement feeds a sr-only live region. When status or round
   // changes after a post-action refresh the region content changes, but a
@@ -1076,7 +1076,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
     ? getExplorerLink(ACTIVE_NETWORK, "tx", success.txHash)
     : null;
 
-  // G��G�� Render G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��G��
+  // GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½ Render GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½GÃ¯Â¿Â½Ã¯Â¿Â½
 
   return (
     <div className="space-y-8">
@@ -1087,7 +1087,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
         `key={progressAnnouncement}` remounts the element whenever the text
         changes (e.g. after a post-action refresh updates the status or round),
         ensuring screen readers re-announce the new state reliably across NVDA,
-        JAWS, and VoiceOver G�� all of which require the DOM node to be (re)inserted
+        JAWS, and VoiceOver GÃ¯Â¿Â½Ã¯Â¿Â½ all of which require the DOM node to be (re)inserted
         into a live region for the announcement to fire.
       */}
       <p
@@ -1100,7 +1100,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
         {progressAnnouncement}
       </p>
 
-      {/* Data state banners G�� shown above the action panel so the user
+      {/* Data state banners GÃ¯Â¿Â½Ã¯Â¿Â½ shown above the action panel so the user
           understands why actions are locked before they try to click */}
       {dataReadiness === "stale" && (
         <StaleDataBanner
@@ -1127,7 +1127,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
             className="inline-block w-4 h-4 border-2 border-slate-300 border-t-brand-600 rounded-full animate-spin"
             aria-hidden="true"
           />
-          Refreshing circle dataGǪ
+          Refreshing circle dataGÃ‡Âª
         </div>
       )}
 
@@ -1159,7 +1159,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
           role="alert"
           className="bg-red-50 border border-red-200 rounded-xl px-5 py-4 flex items-start gap-3 text-sm text-red-700"
         >
-          <span className="text-xl mt-0.5" aria-hidden="true">G��n+�</span>
+          <span className="text-xl mt-0.5" aria-hidden="true">GÃ¯Â¿Â½Ã¯Â¿Â½n+Ã¯Â¿Â½</span>
           <div>
             <p className="font-semibold">Refresh failed</p>
             <p className="mt-1">{manualRefreshError}</p>
@@ -1185,7 +1185,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
         totalRounds={data.circle.total_rounds}
       />
 
-      {/* Join introduction panel � advisory only, shown to non-members */}
+      {/* Join introduction panel Ã¯Â¿Â½ advisory only, shown to non-members */}
       {!isMember && walletLoadState !== "loading" && (
         <JoinIntroBanner
           content={buildJoinIntroContent({
@@ -1226,7 +1226,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
           </div>
         )}
 
-        {/* Diagnostics panel G�� shown when there is an active transaction error.
+        {/* Diagnostics panel GÃ¯Â¿Â½Ã¯Â¿Â½ shown when there is an active transaction error.
             Collapsed by default; user must explicitly expand and generate the
             bundle. Nothing is sent to a server automatically. */}
         {error && (
@@ -1248,7 +1248,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
             tabIndex={-1}
           >
             <p>
-              <span aria-hidden="true">G�� </span>
+              <span aria-hidden="true">GÃ¯Â¿Â½Ã¯Â¿Â½ </span>
               {success.message}
             </p>
             {success.txHash && (
@@ -1277,13 +1277,13 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
                   className="inline-block w-3 h-3 border-2 border-brand-300 border-t-brand-600 rounded-full animate-spin"
                   aria-hidden="true"
                 />
-                Refreshing circle dataGǪ
+                Refreshing circle dataGÃ‡Âª
               </p>
             )}
             {awaitingIndex && refreshState !== "refreshing" && (
               <p className="text-xs text-slate-500" role="status">
                 Transaction confirmed on-chain. Waiting for the indexer to
-                show it � this page will update automatically, or{" "}
+                show it Ã¯Â¿Â½ this page will update automatically, or{" "}
                 <button
                   onClick={handleManualRefresh}
                   disabled={isManualRefreshing}
@@ -1296,7 +1296,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
             )}
             {refreshState === "error" && (
               <p className="text-xs text-amber-700">
-                G��n+� Could not refresh data automatically G��{" "}
+                GÃ¯Â¿Â½Ã¯Â¿Â½n+Ã¯Â¿Â½ Could not refresh data automatically GÃ¯Â¿Â½Ã¯Â¿Â½{" "}
                 <button
                   onClick={handleManualRefresh}
                   disabled={isManualRefreshing}
@@ -1380,7 +1380,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
         )}
 
         <div className="action-group">
-          {/* Wallet loading placeholder G�� prevents layout shift while wallet check is in flight */}
+          {/* Wallet loading placeholder GÃ¯Â¿Â½Ã¯Â¿Â½ prevents layout shift while wallet check is in flight */}
           {walletLoadState === "loading" && (
             <span
               role="status"
@@ -1391,7 +1391,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
                 className="inline-block w-4 h-4 border-2 border-slate-200 border-t-slate-400 rounded-full animate-spin"
                 aria-hidden="true"
               />
-              Checking walletGǪ
+              Checking walletGÃ‡Âª
             </span>
           )}
 
@@ -1412,7 +1412,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
               }
               className="bg-brand-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-h-[44px]"
             >
-              {loading === "join" ? "JoiningGǪ" : "=��� Lock Collateral & Join"}
+              {loading === "join" ? "JoiningGÃ‡Âª" : "=Ã¯Â¿Â½Ã¯Â¿Â½Ã¯Â¿Â½ Lock Collateral & Join"}
             </button>
             {!joinGate.allowed && actionsEnabled && (
               <p id="join-gate-reason" className="text-xs text-slate-500" role="note">
@@ -1442,8 +1442,8 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
                   className="bg-brand-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-h-[44px]"
                 >
                   {loading === "contribute"
-                    ? "ContributingGǪ"
-                    : `=�Ʀ Contribute Round ${currentRound}`}
+                    ? "ContributingGÃ‡Âª"
+                    : `=Ã¯Â¿Â½Ã†Â¦ Contribute Round ${currentRound}`}
                 </button>
                 {!contributeGate.allowed && actionsEnabled && (
                   <p
@@ -1474,7 +1474,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
                 }
                 className="bg-blue-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-h-[44px]"
               >
-                {loading === "payout" ? "Paying outGǪ" : "=�Ļ Trigger Payout"}
+                {loading === "payout" ? "Paying outGÃ‡Âª" : "=Ã¯Â¿Â½Ã„Â» Trigger Payout"}
               </button>
               {!payoutGate.allowed && actionsEnabled && (
                 <p
@@ -1506,7 +1506,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
               }
               className="bg-slate-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-h-[44px]"
             >
-              {loading === "close" ? "ClosingGǪ" : "=��� Release Collateral"}
+              {loading === "close" ? "ClosingGÃ‡Âª" : "=Ã¯Â¿Â½Ã¯Â¿Â½Ã¯Â¿Â½ Release Collateral"}
             </button>
             {!closeGate.allowed && actionsEnabled && (
               <p id="close-gate-reason" className="text-xs text-slate-500" role="note">
@@ -1541,7 +1541,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
           className="bg-white rounded-xl border border-brand-200 p-5"
         >
           <h2 className="font-semibold text-slate-800 mb-3">
-            <span aria-hidden="true">=�Ʀ </span>Contribution Receipt
+            <span aria-hidden="true">=Ã¯Â¿Â½Ã†Â¦ </span>Contribution Receipt
           </h2>
           <dl className="space-y-2 text-sm">
             <div className="flex justify-between">
@@ -1611,9 +1611,9 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
         {/* Issue #697: Show data source and freshness on the member list section.
             The freshness state is derived from the indexer checkpoint timestamp.
             "unknown freshness" is shown explicitly when checkpointTime is absent
-            � it is never silently mapped to "current". */}
+            Ã¯Â¿Â½ it is never silently mapped to "current". */}
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-semibold text-slate-800">=��� Rotation Order</h2>
+          <h2 className="font-semibold text-slate-800">=Ã¯Â¿Â½Ã¯Â¿Â½Ã¯Â¿Â½ Rotation Order</h2>
           <span
             className="text-xs text-slate-400"
             title="Where this member data comes from and how current it is. Indexed data may lag the chain by one or more ledgers."
@@ -1676,7 +1676,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
                     />
                     {member.defaults > 0 && (
                       <span className="text-xs text-red-600 font-medium">
-                        <span aria-hidden="true">G��n+� </span>
+                        <span aria-hidden="true">GÃ¯Â¿Â½Ã¯Â¿Â½n+Ã¯Â¿Â½ </span>
                         {member.defaults} default
                         {member.defaults > 1 ? "s" : ""}
                       </span>
@@ -1687,12 +1687,12 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
                 <div className="text-right text-sm shrink-0 max-w-[45%] sm:max-w-none">
                   {isPaid ? (
                     <span className="text-slate-500 text-xs sm:text-sm">
-                      <span aria-hidden="true">G�� </span>
+                      <span aria-hidden="true">GÃ¯Â¿Â½Ã¯Â¿Â½ </span>
                       received ${formatUsdc(roundForMember?.amount ?? "0")}
                     </span>
                   ) : isNext ? (
                     <span className="text-brand-700 font-semibold text-xs sm:text-sm">
-                      <span aria-hidden="true">G�� </span>
+                      <span aria-hidden="true">GÃ¯Â¿Â½Ã¯Â¿Â½ </span>
                       next payout
                     </span>
                   ) : (
@@ -1730,7 +1730,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
       {/* Round history */}
       {data.rounds.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <h2 className="font-semibold text-slate-800 mb-4">=��� Round History</h2>
+          <h2 className="font-semibold text-slate-800 mb-4">=Ã¯Â¿Â½Ã¯Â¿Â½Ã¯Â¿Â½ Round History</h2>
           <div className="space-y-4">
             {data.rounds.map((round) => (
               <RoundCard key={round.roundIndex} round={round} />
@@ -1743,7 +1743,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
       {data.openRounds.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
           <h2 className="font-semibold text-amber-800 mb-1">
-            GŦ Open Rounds
+            GÃ…Â¦ Open Rounds
           </h2>
           <p className="text-xs text-amber-700 mb-3">
             These rounds have recorded contributions or defaults but have not
@@ -1763,7 +1763,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
       {data.pendingDefaults.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-5">
           <h2 className="font-semibold text-red-800 mb-3">
-            G��n+� Defaults (current round)
+            GÃ¯Â¿Â½Ã¯Â¿Â½n+Ã¯Â¿Â½ Defaults (current round)
           </h2>
           <div className="space-y-2">
             {data.pendingDefaults.map((d) => (
@@ -1778,18 +1778,11 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
           </div>
         </div>
       )}
+      <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <CircleActivityTimeline circleAddress={circleAddress} />
+      </div>
 
-      {/* Activity timeline � only shown when there are any rounds of data */}
-      {(data.rounds.length > 0 || data.openRounds.length > 0) && (
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <CircleTimeline
-            rawEvents={buildTimelineEvents(data)}
-            fetchedAt={data.checkpointTime ?? null}
-          />
-        </div>
-      )}
-
-      {/* Per-member round summary � shown for the connected wallet member */}
+      {/* Per-member round summary Ã¯Â¿Â½ shown for the connected wallet member */}
       {isMember && myMember && (data.rounds.length > 0 || data.openRounds.length > 0) && (
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <MemberRoundSummary
@@ -1803,7 +1796,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
       )}
 
       {/* Invite link */}
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-5">        <h2 className="font-semibold text-slate-700 mb-2">=��� Invite link</h2>
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-5">        <h2 className="font-semibold text-slate-700 mb-2">=Ã¯Â¿Â½Ã¯Â¿Â½Ã¯Â¿Â½ Invite link</h2>
         <p className="text-xs text-slate-500 mb-2">
           Share this link so members can find and join this circle:
         </p>
@@ -1815,7 +1808,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
             onClick={(e) => (e.target as HTMLInputElement).select()}
             aria-label="Invite link for this circle"
             aria-busy={inviteUrl === null}
-            placeholder="Loading invite linkGǪ"
+            placeholder="Loading invite linkGÃ‡Âª"
           />
           <button
             onClick={handleCopyInvite}
@@ -1825,7 +1818,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
               inviteCopyState === "success"
                 ? "Link copied!"
                 : inviteCopyState === "error"
-                ? "Copy failed G�� try selecting and copying manually"
+                ? "Copy failed GÃ¯Â¿Â½Ã¯Â¿Â½ try selecting and copying manually"
                 : "Copy invite link"
             }
           >

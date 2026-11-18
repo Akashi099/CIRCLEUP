@@ -1,10 +1,10 @@
 // app/src/lib/circleDetailHelpers.ts
 //
 // Pure helper functions extracted from CircleDetailClient.tsx to reduce its LOC.
-// No React hooks or state — these are safe to unit test in isolation.
+// No React hooks or state ï¿½ these are safe to unit test in isolation.
 
 import type { CircleMember, ContributionRecord, CircleDetailData, CircleRound } from "@/lib/circleTypes";
-function getMemberContributionStatus(
+export function getMemberContributionStatus(
   member: CircleMember,
   currentRound: number,
   status: string,
@@ -13,7 +13,7 @@ function getMemberContributionStatus(
 ): "contributed" | "pending" | "defaulted" | "not_applicable" {
   if (status !== "Active") return "not_applicable";
 
-  // The current recipient receives the pot GÇö they are not a contributor this round.
+  // The current recipient receives the pot Gï¿½ï¿½ they are not a contributor this round.
   if (member.payout_order === currentRound) return "not_applicable";
 
   // Issue #498: prefer the authoritative contributions list when available.
@@ -36,23 +36,23 @@ function getMemberContributionStatus(
   return "pending";
 }
 
-// GöÇGöÇGöÇ Type-safe parsers for indexer API responses (Issue #496, #513) GöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇ
+// Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½ Type-safe parsers for indexer API responses (Issue #496, #513) Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½
 //
 // All parsers (parseContributionRecord, parseDefaultRecord, parseCircleRound,
 // parsePendingDefault, parseCircleState) have been moved to lib/circleTypes.ts
 // and are imported above. This ensures a single implementation is shared by
 // both the server page and this client component.
 
-// GöÇGöÇGöÇ fetchCircleData GöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇ
+// Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½ fetchCircleData Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½Gï¿½ï¿½
 //
 // Shared fetch logic used both by the initial SSR prop and the client-side
 // manual refresh. Returns the merged data or an error discriminant.
 //
 // Error kinds:
-//   "not_found" GÇö indexer returned 404 (circle does not exist).
-//   "network"   GÇö fetch threw (offline, DNS failure, CORS).
-//   "server"    GÇö indexer returned 5xx or non-ok non-404.
-//   "misconfigured" GÇö NEXT_PUBLIC_INDEXER_URL is unusable; nothing was fetched.
+//   "not_found" Gï¿½ï¿½ indexer returned 404 (circle does not exist).
+//   "network"   Gï¿½ï¿½ fetch threw (offline, DNS failure, CORS).
+//   "server"    Gï¿½ï¿½ indexer returned 5xx or non-ok non-404.
+//   "misconfigured" Gï¿½ï¿½ NEXT_PUBLIC_INDEXER_URL is unusable; nothing was fetched.
 //                 Kept apart from "not_found": a relative URL would otherwise
 //                 hit this Next app, 404, and claim the circle was deleted.
 
@@ -67,9 +67,9 @@ export type RefreshResult =
 // Synthesises raw-event-shaped objects from the already-loaded rounds data so
 // CircleTimeline can render a chronological view without an additional fetch.
 // Each round produces events for join actions, contributions, defaults, and
-// payout — all derived from what the indexer already returned.
+// payout ï¿½ all derived from what the indexer already returned.
 
-function buildTimelineEvents(data: CircleDetailData): unknown[] {
+export function buildTimelineEvents(data: CircleDetailData): unknown[] {
   const events: unknown[] = [];
 
   const allRounds = [
