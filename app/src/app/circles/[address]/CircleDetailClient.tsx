@@ -76,6 +76,7 @@ import { RoundCard } from "@/components/RoundCard";
 import { ContributionStatusBadge } from "@/components/ContributionStatusBadge";
 
 import { WorkflowBanner } from "@/components/WorkflowBanner";
+import { useAnnouncer, ANNOUNCEMENTS } from "@/lib/useAnnouncer";
 interface Props {
   circleAddress: string;
   circleData: CircleDetailData;
@@ -386,6 +387,10 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
         if (disposed || current !== generation) return;
         setWalletAddress(address);
         setWalletLoadState(address ? 'connected' : 'disconnected');
+        if (address) {
+          const a = ANNOUNCEMENTS.walletConnected(address.slice(0, 6) + '…' + address.slice(-4));
+          announce(a.message, a.politeness);
+        }
       } catch {
         if (!disposed && current === generation) setWalletLoadState('not_installed');
       }
@@ -591,11 +596,14 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
     if (isManualRefreshing) return;
     setIsManualRefreshing(true);
     setManualRefreshError("");
+    announce(ANNOUNCEMENTS.refreshing.message, ANNOUNCEMENTS.refreshing.politeness);
 
     const ctrl = new AbortController();
     refreshAbortRef.current?.abort();
     refreshAbortRef.current = ctrl;
 
+    const prevStatus = data.circle.status;
+    const prevRound  = data.circle.current_round;
     const result = await fetchCircleData(circleAddress, ctrl.signal);
 
     if (ctrl.signal.aborted) return; // unmounted during fetch
@@ -604,15 +612,26 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
       setData(result.data);
       setDataFetchedAtMs(result.fetchedAtMs);
       setManualRefreshError("");
+      // Only announce when something the user cares about actually changed.
+      const statusChanged = result.data.circle.status !== prevStatus;
+      const roundChanged  = result.data.circle.current_round !== prevRound;
+      if (statusChanged || roundChanged) {
+        const what = statusChanged
+          ? `status is now ${result.data.circle.status}`
+          : `now on round ${result.data.circle.current_round}`;
+        const a = ANNOUNCEMENTS.refreshedChanged(what);
+        announce(a.message, a.politeness);
+      }
     } else {
       setManualRefreshError(
         DATA_STATE_MSGS.refreshErrors[result.error] ?? DATA_STATE_MSGS.refreshErrors.server,
       );
+      announce(ANNOUNCEMENTS.refreshError.message, ANNOUNCEMENTS.refreshError.politeness);
     }
 
     setIsManualRefreshing(false);
     setAwaitingIndex(false);
-  }, [circleAddress, isManualRefreshing]);
+  }, [circleAddress, isManualRefreshing, data, announce]);
 
   // Issue #797: bounded push-style discovery of indexed changes. Prefers SSE
   // when NEXT_PUBLIC_INDEXER_EVENTS_URL is set, else bounded polling; both
@@ -737,6 +756,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
 
     submittingRef.current = true;
     setLoading(action);
+    announce(ANNOUNCEMENTS.txSubmitting.message, ANNOUNCEMENTS.txSubmitting.politeness);
 
     // Issue #654: create a fresh AbortController for this invocation and
     // store it so the unmount effect can abort it if the component is torn
@@ -794,14 +814,19 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
         setError(errMsg);
         setErrorTypedError(result.typedError ?? null);
         setErrorTxHash(result.txHash || null);
+        const fa = ANNOUNCEMENTS.txFailed(errMsg);
+        announce(fa.message, fa.politeness);
         if (!result.txHash && isRetryableError(errMsg)) {
           setRetryAction(() => () => doAction(action, args));
         }
       } else {
+        const successMsg = ACTION_SUCCESS_MESSAGES[action];
         setSuccess({
-          message: ACTION_SUCCESS_MESSAGES[action],
+          message: successMsg,
           txHash: result.txHash,
         });
+        const ca = ANNOUNCEMENTS.txConfirmed(successMsg);
+        announce(ca.message, ca.politeness);
         if (action === "contribute") {
           setContributionReceipt({
             amount: data.circle.round_amount,
@@ -833,10 +858,11 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
         if (cancelInfo.submittedBeforeAbort) {
           // Tx may still confirm GÃ¯Â¿Â½Ã¯Â¿Â½ show an advisory so the user knows to
           // check the explorer rather than re-submitting immediately.
-          setError(
+          const cancelMsg =
             "You stopped waiting, but the transaction may still confirm on-chain. " +
-              "Check the explorer before retrying to avoid a duplicate submission.",
-          );
+              "Check the explorer before retrying to avoid a duplicate submission.";
+          setError(cancelMsg);
+          announce(ANNOUNCEMENTS.txCancelled.message, ANNOUNCEMENTS.txCancelled.politeness);
         }
         // submittedBeforeAbort=false means we cancelled cleanly before
         // broadcast GÃ¯Â¿Â½Ã¯Â¿Â½ no message needed, just let the UI reset below.
@@ -845,6 +871,8 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(userMessageForError(parseContractError(message)));
       setErrorTypedError(parseContractError(message));
+      const fa = ANNOUNCEMENTS.txFailed(userMessageForError(parseContractError(message)));
+      announce(fa.message, fa.politeness);
       if (isRetryableError(message)) {
         setRetryAction(() => () => doAction(action, args));
       }
@@ -1014,6 +1042,7 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
 
     submittingRef.current = true;
     setLoading("default");
+    announce(ANNOUNCEMENTS.txSubmitting.message, ANNOUNCEMENTS.txSubmitting.politeness);
 
     const txCtrl = new AbortController();
     txAbortRef.current = txCtrl;
@@ -1031,14 +1060,19 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
         setError(errMsg);
         setErrorTypedError(result.typedError ?? null);
         setErrorTxHash(result.txHash || null);
+        const fa = ANNOUNCEMENTS.txFailed(errMsg);
+        announce(fa.message, fa.politeness);
         if (!result.txHash && isRetryableError(errMsg)) {
           setRetryAction(() => () => doDefault(memberAddress));
         }
       } else {
+        const successMsg = txDefaultSuccess(shortAddress(memberAddress), currentRound);
         setSuccess({
-          message: txDefaultSuccess(shortAddress(memberAddress), currentRound),
+          message: successMsg,
           txHash: result.txHash,
         });
+        const ca = ANNOUNCEMENTS.txConfirmed(successMsg);
+        announce(ca.message, ca.politeness);
         const ctrl = new AbortController();
         await postActionRefresh(ctrl);
       }
@@ -1047,6 +1081,8 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(userMessageForError(parseContractError(message)));
       setErrorTypedError(parseContractError(message));
+      const fa = ANNOUNCEMENTS.txFailed(userMessageForError(parseContractError(message)));
+      announce(fa.message, fa.politeness);
       if (isRetryableError(message)) {
         setRetryAction(() => () => doDefault(memberAddress));
       }
@@ -1080,6 +1116,15 @@ export function CircleDetailClient({ circleAddress, circleData }: Props) {
 
   return (
     <div className="space-y-8">
+      {/*
+        Accessible live-region portal — visually hidden, always in the DOM.
+        Renders two sr-only <span> elements (polite + assertive) that screen
+        readers watch for state-change announcements. Must appear before any
+        content so it is in the accessibility tree when subsequent state changes
+        trigger announcements.
+      */}
+      <AnnouncerPortal />
+
       <a href="/transactions" className="text-sm underline">Reopen recent transaction status</a>
 
       {/*

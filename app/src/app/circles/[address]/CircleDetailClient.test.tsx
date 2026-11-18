@@ -910,3 +910,254 @@ describe("Duplicate submission guard", () => {
     expect(stellarMock.invokeContract).toHaveBeenCalledTimes(1);
   });
 });
+
+// ─── useAnnouncer live-region tests ──────────────────────────────────────────
+//
+// Verify that the AnnouncerPortal renders both live regions in the DOM and that
+// the announce() hook correctly de-duplicates repeated identical messages so
+// polling never floods assistive technology.
+//
+// These tests exercise the hook in isolation (no component render needed) so
+// they remain fast and free of React-component dependencies.
+
+import { renderHook, act } from "@testing-library/react";
+import { useAnnouncer, ANNOUNCEMENTS } from "@/lib/useAnnouncer";
+
+describe("useAnnouncer — live-region policy", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("AnnouncerPortal renders a polite status region and an assertive alert region", () => {
+    const { result } = renderHook(() => useAnnouncer());
+    const { AnnouncerPortal } = result.current;
+    const { container } = render(<AnnouncerPortal />);
+
+    const polite = container.querySelector("[role='status'][aria-live='polite']");
+    const assertive = container.querySelector("[role='alert'][aria-live='assertive']");
+
+    expect(polite).toBeInTheDocument();
+    expect(assertive).toBeInTheDocument();
+    expect(polite).toHaveAttribute("aria-atomic", "true");
+    expect(assertive).toHaveAttribute("aria-atomic", "true");
+    // Both should have the sr-only class so they are visually hidden
+    expect(polite).toHaveClass("sr-only");
+    expect(assertive).toHaveClass("sr-only");
+  });
+
+  test("announce() polite: sets polite region text", async () => {
+    const { result } = renderHook(() => useAnnouncer());
+
+    act(() => {
+      result.current.announce("Transaction confirmed.", "polite");
+    });
+
+    const { container } = render(<result.current.AnnouncerPortal />);
+    const polite = container.querySelector("[role='status'][aria-live='polite']");
+    expect(polite?.textContent).toBe("Transaction confirmed.");
+  });
+
+  test("announce() assertive: sets assertive region text", async () => {
+    const { result } = renderHook(() => useAnnouncer());
+
+    act(() => {
+      result.current.announce("Transaction failed: network error", "assertive");
+    });
+
+    const { container } = render(<result.current.AnnouncerPortal />);
+    const assertive = container.querySelector("[role='alert'][aria-live='assertive']");
+    expect(assertive?.textContent).toBe("Transaction failed: network error");
+  });
+
+  test("announce() dedup: second identical polite message is ignored within the clear window", () => {
+    const { result } = renderHook(() => useAnnouncer());
+
+    act(() => {
+      result.current.announce("Data refreshed.", "polite");
+    });
+
+    // Render once to capture the text
+    const { container: c1 } = render(<result.current.AnnouncerPortal />);
+    const before = c1.querySelector("[role='status']")?.textContent;
+
+    // Send the exact same message again (simulating a repeated polling cycle)
+    act(() => {
+      result.current.announce("Data refreshed.", "polite");
+    });
+
+    const { container: c2 } = render(<result.current.AnnouncerPortal />);
+    const after = c2.querySelector("[role='status']")?.textContent;
+
+    // Text must be unchanged — the duplicate was swallowed
+    expect(before).toBe(after);
+    expect(after).toBe("Data refreshed.");
+  });
+
+  test("announce() dedup: different message after clear window is announced again", () => {
+    const { result } = renderHook(() => useAnnouncer());
+
+    act(() => {
+      result.current.announce("Circle data updated: status is now Active.", "polite");
+    });
+
+    // Advance past CLEAR_DELAY_MS (3000 ms) so the region is cleared
+    act(() => {
+      vi.advanceTimersByTime(3500);
+    });
+
+    // Now send the same message — it should re-announce because the last ref was cleared
+    act(() => {
+      result.current.announce("Circle data updated: status is now Active.", "polite");
+    });
+
+    const { container } = render(<result.current.AnnouncerPortal />);
+    const polite = container.querySelector("[role='status']");
+    expect(polite?.textContent).toBe("Circle data updated: status is now Active.");
+  });
+
+  test("announce() empty string is silently ignored", () => {
+    const { result } = renderHook(() => useAnnouncer());
+
+    act(() => {
+      result.current.announce("", "polite");
+      result.current.announce("   ", "assertive");
+    });
+
+    const { container } = render(<result.current.AnnouncerPortal />);
+    const polite = container.querySelector("[role='status']");
+    const assertive = container.querySelector("[role='alert']");
+
+    expect(polite?.textContent).toBe("");
+    expect(assertive?.textContent).toBe("");
+  });
+
+  test("ANNOUNCEMENTS.txSubmitting is polite (non-interrupting)", () => {
+    expect(ANNOUNCEMENTS.txSubmitting.politeness).toBe("polite");
+    expect(ANNOUNCEMENTS.txSubmitting.message.length).toBeGreaterThan(0);
+  });
+
+  test("ANNOUNCEMENTS.txFailed is assertive (interrupts ongoing speech)", () => {
+    const a = ANNOUNCEMENTS.txFailed("network error");
+    expect(a.politeness).toBe("assertive");
+    expect(a.message).toContain("network error");
+  });
+
+  test("ANNOUNCEMENTS.txConfirmed is polite and includes the action label", () => {
+    const a = ANNOUNCEMENTS.txConfirmed("Contribution submitted successfully.");
+    expect(a.politeness).toBe("polite");
+    expect(a.message).toContain("Contribution submitted successfully.");
+  });
+
+  test("ANNOUNCEMENTS.refreshing is polite", () => {
+    expect(ANNOUNCEMENTS.refreshing.politeness).toBe("polite");
+  });
+
+  test("ANNOUNCEMENTS.refreshError is assertive (data loss risk)", () => {
+    expect(ANNOUNCEMENTS.refreshError.politeness).toBe("assertive");
+  });
+
+  test("ANNOUNCEMENTS.refreshedChanged includes what changed", () => {
+    const a = ANNOUNCEMENTS.refreshedChanged("status is now Completed");
+    expect(a.message).toContain("status is now Completed");
+    expect(a.politeness).toBe("polite");
+  });
+
+  test("ANNOUNCEMENTS.walletConnected includes the address fragment", () => {
+    const a = ANNOUNCEMENTS.walletConnected("GABC…XYZ");
+    expect(a.message).toContain("GABC…XYZ");
+    expect(a.politeness).toBe("polite");
+  });
+
+  test("ANNOUNCEMENTS.walletError is assertive", () => {
+    const a = ANNOUNCEMENTS.walletError("Freighter not installed");
+    expect(a.politeness).toBe("assertive");
+    expect(a.message).toContain("Freighter not installed");
+  });
+
+  test("ANNOUNCEMENTS.circleCreated is polite", () => {
+    expect(ANNOUNCEMENTS.circleCreated.politeness).toBe("polite");
+  });
+
+  test("ANNOUNCEMENTS.circleCreateFailed is assertive", () => {
+    const a = ANNOUNCEMENTS.circleCreateFailed("Factory not configured");
+    expect(a.politeness).toBe("assertive");
+    expect(a.message).toContain("Factory not configured");
+  });
+
+  test("ANNOUNCEMENTS.indexerIndexed is polite", () => {
+    expect(ANNOUNCEMENTS.indexerIndexed.politeness).toBe("polite");
+  });
+});
+
+// ─── CircleDetailClient — AnnouncerPortal integration ────────────────────────
+//
+// Verify that the portal is rendered in the component tree and that both
+// live regions are present in the DOM from the first render.
+
+describe("CircleDetailClient — AnnouncerPortal present in DOM", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (stellarMock.getWalletAddress as any).mockResolvedValue(null);
+  });
+
+  test("renders a polite status live region (sr-only) from AnnouncerPortal", async () => {
+    const data = makeReadyData();
+    render(<CircleDetailClient circleAddress={CONTRACT} circleData={data} />);
+
+    // AnnouncerPortal adds two sr-only spans — query the assertive one
+    await waitFor(() => {
+      const assertiveRegion = document.querySelector(
+        "[role='alert'][aria-live='assertive'].sr-only",
+      );
+      expect(assertiveRegion).toBeInTheDocument();
+    });
+  });
+
+  test("renders an assertive alert live region (sr-only) from AnnouncerPortal", async () => {
+    const data = makeReadyData();
+    render(<CircleDetailClient circleAddress={CONTRACT} circleData={data} />);
+
+    await waitFor(() => {
+      const politeRegion = document.querySelector(
+        "[role='status'][aria-live='polite'][aria-atomic='true'].sr-only",
+      );
+      // There will be at least one (may be the progressAnnouncement or AnnouncerPortal)
+      expect(politeRegion).toBeInTheDocument();
+    });
+  });
+
+  test("repeated identical data-refresh does not change the refreshed announcement text (dedup)", async () => {
+    const data = makeReadyData();
+    const { rerender } = render(
+      <CircleDetailClient circleAddress={CONTRACT} circleData={data} />,
+    );
+
+    // Re-render with the same data twice — no meaningful state change
+    rerender(<CircleDetailClient circleAddress={CONTRACT} circleData={data} />);
+    rerender(<CircleDetailClient circleAddress={CONTRACT} circleData={data} />);
+
+    // The assertive alert region must stay empty — no flood of announcements
+    await waitFor(() => {
+      const assertiveRegion = document.querySelector(
+        "[role='alert'][aria-live='assertive'].sr-only",
+      );
+      expect(assertiveRegion?.textContent).toBe("");
+    });
+  });
+
+  test("progressAnnouncement sr-only region has correct aria attributes", async () => {
+    const data = makeReadyData();
+    render(<CircleDetailClient circleAddress={CONTRACT} circleData={data} />);
+
+    await waitFor(() => {
+      // The key-remounted progress node
+      const els = document.querySelectorAll(
+        "[role='status'][aria-live='polite'][aria-atomic='true']",
+      );
+      expect(els.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+});

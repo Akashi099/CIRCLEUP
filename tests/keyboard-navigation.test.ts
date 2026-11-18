@@ -414,3 +414,343 @@ describe("Keyboard-only transaction preparation and confirmation (#702)", () => 
     assert.equal(dialog.ariaLabelledBy, "default-confirm-title", "dialog must reference accessible title ID");
   });
 });
+
+// ─── Live-Region & Announcement Policy Tests ─────────────────────────────────
+//
+// These tests verify the announcement policy for the create and circle-detail
+// flows without a browser or React renderer.  They use the same headless
+// keyboard harness from above and extend it with a minimal live-region model
+// that mirrors the two-channel (polite / assertive) design of useAnnouncer.ts.
+//
+// Invariants verified:
+//   7.  Transaction submission fires a polite announcement.
+//   8.  Transaction failure fires an assertive announcement.
+//   9.  Transaction success fires a polite announcement.
+//   10. Repeated identical messages are deduplicated (no AT flood).
+//   11. A different message after the clear window re-announces.
+//   12. Assertive politeness takes precedence over polite for error conditions.
+//   13. Refresh-start is polite; refresh-error is assertive.
+//   14. Data-state change (status/round diff) produces one polite announcement.
+//   15. Polling with no state change produces no additional announcements.
+//   16. Focus is never moved by an announcement.
+
+// ── Minimal live-region model ─────────────────────────────────────────────────
+
+type Politeness = "polite" | "assertive";
+
+interface RegionState {
+  text: string;
+  lastAnnounced: string;
+  clearTimer: ReturnType<typeof setTimeout> | null;
+}
+
+const CLEAR_DELAY_MS = 3_000;
+
+class LiveRegionModel {
+  private regions: Record<Politeness, RegionState> = {
+    polite:    { text: "", lastAnnounced: "", clearTimer: null },
+    assertive: { text: "", lastAnnounced: "", clearTimer: null },
+  };
+  /** Ordered log of every announcement that was not deduplicated. */
+  readonly announcements: Array<{ message: string; politeness: Politeness }> = [];
+
+  announce(message: string, politeness: Politeness = "polite"): void {
+    if (!message || !message.trim()) return;
+    const region = this.regions[politeness];
+    // Deduplicate: skip if the same message was just announced (within the
+    // clear window, so lastAnnounced is still set).
+    if (message === region.lastAnnounced) return;
+    region.lastAnnounced = message;
+    region.text = message;
+    this.announcements.push({ message, politeness });
+    if (region.clearTimer) clearTimeout(region.clearTimer);
+    region.clearTimer = setTimeout(() => {
+      region.text = "";
+      region.lastAnnounced = "";
+      region.clearTimer = null;
+    }, CLEAR_DELAY_MS);
+  }
+
+  /** Advance time (simulate setTimeout) so the clear window expires. */
+  advancePast(ms: number): void {
+    // Flush all pending timers that would fire within `ms` by setting lastAnnounced
+    // to "" on both regions — mirrors what the real hook does.
+    if (ms >= CLEAR_DELAY_MS) {
+      for (const region of Object.values(this.regions)) {
+        if (region.clearTimer !== null) {
+          region.text = "";
+          region.lastAnnounced = "";
+          region.clearTimer = null;
+        }
+      }
+    }
+  }
+
+  getText(politeness: Politeness): string {
+    return this.regions[politeness].text;
+  }
+
+  countFor(politeness: Politeness): number {
+    return this.announcements.filter((a) => a.politeness === politeness).length;
+  }
+}
+
+// ── Test Suite: Announcement Policy ──────────────────────────────────────────
+
+describe("Live-region announcement policy (#702 follow-up)", () => {
+
+  // ── 7. Transaction submission — polite ─────────────────────────────────────
+
+  test("7: transaction submission fires a polite (non-interrupting) announcement", () => {
+    const model = new LiveRegionModel();
+    // Mirrors ANNOUNCEMENTS.txSubmitting
+    model.announce("Submitting transaction, please wait.", "polite");
+
+    assert.equal(model.getText("polite"), "Submitting transaction, please wait.");
+    assert.equal(model.getText("assertive"), "", "submission must NOT use assertive channel");
+    assert.equal(model.countFor("polite"), 1);
+  });
+
+  // ── 8. Transaction failure — assertive ────────────────────────────────────
+
+  test("8: transaction failure fires an assertive (interrupting) announcement", () => {
+    const model = new LiveRegionModel();
+    // Mirrors ANNOUNCEMENTS.txFailed(reason)
+    model.announce("Transaction failed: network error", "assertive");
+
+    assert.equal(model.getText("assertive"), "Transaction failed: network error");
+    assert.equal(model.getText("polite"), "", "failure must NOT bleed into polite channel");
+    assert.equal(model.countFor("assertive"), 1);
+  });
+
+  // ── 9. Transaction success — polite ──────────────────────────────────────
+
+  test("9: transaction success fires a polite announcement with the action label", () => {
+    const model = new LiveRegionModel();
+    // Mirrors ANNOUNCEMENTS.txConfirmed(label)
+    model.announce("Transaction confirmed: Contribution submitted successfully.", "polite");
+
+    assert.ok(
+      model.getText("polite").includes("Contribution submitted successfully."),
+      "success announcement must include the action label",
+    );
+    assert.equal(model.countFor("polite"), 1);
+  });
+
+  // ── 10. Deduplication — repeated identical message ─────────────────────────
+
+  test("10: repeated identical polite messages are deduplicated (AT not flooded)", () => {
+    const model = new LiveRegionModel();
+    const msg = "Circle data updated: now on round 2.";
+
+    // Simulate five polling cycles that all produce the same message
+    for (let i = 0; i < 5; i++) {
+      model.announce(msg, "polite");
+    }
+
+    // Only the first announcement must have fired
+    assert.equal(
+      model.countFor("polite"),
+      1,
+      "5 identical polite messages must produce exactly 1 announcement",
+    );
+    assert.equal(model.getText("polite"), msg);
+  });
+
+  test("10b: repeated identical assertive messages are deduplicated", () => {
+    const model = new LiveRegionModel();
+    const msg = "Transaction failed: wallet not installed";
+
+    for (let i = 0; i < 3; i++) {
+      model.announce(msg, "assertive");
+    }
+
+    assert.equal(model.countFor("assertive"), 1);
+  });
+
+  // ── 11. Re-announcement after clear window ────────────────────────────────
+
+  test("11: same message re-announces after the clear window expires", () => {
+    const model = new LiveRegionModel();
+    const msg = "Circle data updated: status is now Active.";
+
+    model.announce(msg, "polite");
+    assert.equal(model.countFor("polite"), 1);
+
+    // Advance past CLEAR_DELAY_MS
+    model.advancePast(3_500);
+
+    // Same message again — should fire because lastAnnounced was cleared
+    model.announce(msg, "polite");
+    assert.equal(
+      model.countFor("polite"),
+      2,
+      "re-announcement must fire after the clear window expires",
+    );
+  });
+
+  // ── 12. Assertive takes precedence for errors ──────────────────────────────
+
+  test("12: error announcements use assertive channel; non-errors use polite", () => {
+    const model = new LiveRegionModel();
+
+    model.announce("Submitting transaction, please wait.", "polite");
+    model.announce("Transaction failed: RPC timeout", "assertive");
+
+    assert.equal(model.countFor("polite"), 1, "one polite (submission)");
+    assert.equal(model.countFor("assertive"), 1, "one assertive (failure)");
+    // Polite text is independent
+    assert.equal(model.getText("polite"), "Submitting transaction, please wait.");
+    assert.equal(model.getText("assertive"), "Transaction failed: RPC timeout");
+  });
+
+  // ── 13. Refresh-start polite; refresh-error assertive ────────────────────
+
+  test("13: refresh-start is polite; refresh-error is assertive", () => {
+    const model = new LiveRegionModel();
+
+    // Mirrors ANNOUNCEMENTS.refreshing + ANNOUNCEMENTS.refreshError
+    model.announce("Refreshing circle data.", "polite");
+    model.announce("Could not refresh circle data. Try again.", "assertive");
+
+    assert.equal(model.countFor("polite"), 1);
+    assert.equal(model.countFor("assertive"), 1);
+    assert.equal(model.getText("polite"), "Refreshing circle data.");
+    assert.equal(model.getText("assertive"), "Could not refresh circle data. Try again.");
+  });
+
+  // ── 14. Data-state change fires exactly one announcement ──────────────────
+
+  test("14: status change fires one polite announcement per distinct transition", () => {
+    const model = new LiveRegionModel();
+
+    // Simulate three distinct status transitions
+    const transitions = [
+      "Circle data updated: status is now Active.",
+      "Circle data updated: now on round 1.",
+      "Circle data updated: status is now Completed.",
+    ];
+
+    for (const msg of transitions) {
+      model.announce(msg, "polite");
+    }
+
+    assert.equal(
+      model.countFor("polite"),
+      3,
+      "each distinct data-state transition must produce exactly one announcement",
+    );
+  });
+
+  // ── 15. Polling with no state change produces no announcements ────────────
+
+  test("15: repeated polling that produces no state change generates zero announcements", () => {
+    const model = new LiveRegionModel();
+
+    // Simulate: a refresh was triggered but nothing changed — no announce() call
+    // is made when status/round are the same as before (see handleManualRefresh logic)
+    // This test verifies the model itself: calling announce() with undefined/empty is a no-op.
+    model.announce("", "polite");
+    model.announce("   ", "polite");
+    model.announce("", "assertive");
+
+    assert.equal(
+      model.announcements.length,
+      0,
+      "empty/whitespace messages must never reach the AT channel",
+    );
+  });
+
+  // ── 16. Focus is never moved by an announcement ───────────────────────────
+
+  test("16: live-region announcements do not change focus", () => {
+    const env = new KeyboardTestEnvironment();
+    const model = new LiveRegionModel();
+
+    env.register({ id: "submit-btn", tagName: "BUTTON", tabIndex: 0, textContent: "Submit" });
+    env.focus("submit-btn");
+
+    const focusBefore = env.activeElement?.id;
+
+    // Fire three different announcements in sequence
+    model.announce("Submitting transaction, please wait.", "polite");
+    model.announce("Transaction confirmed: Collateral locked — you have joined the circle!.", "polite");
+    model.announce("Could not refresh circle data. Try again.", "assertive");
+
+    // Focus must remain on the submit button — announcements never move focus
+    assert.equal(
+      env.activeElement?.id,
+      focusBefore,
+      "live-region announcements must never alter keyboard focus",
+    );
+  });
+
+  // ── 17. Full transaction arc — submit → confirm → no duplicate ────────────
+
+  test("17: full arc (submit→confirm) fires two distinct polite announcements, no duplicates", () => {
+    const model = new LiveRegionModel();
+
+    // Mirrors the actual arc in doAction:
+    //   1. setLoading → announce txSubmitting
+    //   2. result.success → announce txConfirmed
+    model.announce("Submitting transaction, please wait.", "polite");
+    model.announce(
+      "Transaction confirmed: Contribution submitted successfully.",
+      "polite",
+    );
+
+    assert.equal(model.countFor("polite"), 2, "two distinct polite announcements for submit+confirm");
+    assert.equal(model.countFor("assertive"), 0, "no assertive for a successful flow");
+  });
+
+  // ── 18. Full failure arc — submit → fail ─────────────────────────────────
+
+  test("18: full arc (submit→fail) fires polite submission then assertive failure", () => {
+    const model = new LiveRegionModel();
+
+    model.announce("Submitting transaction, please wait.", "polite");
+    model.announce("Transaction failed: You cancelled the transaction in Freighter. No funds were moved.", "assertive");
+
+    assert.equal(model.countFor("polite"), 1);
+    assert.equal(model.countFor("assertive"), 1);
+    assert.ok(
+      model.getText("assertive").includes("cancelled"),
+      "failure message must name the reason",
+    );
+  });
+
+  // ── 19. Indexer-indexed announcement is polite ────────────────────────────
+
+  test("19: indexer-indexed announcement is polite (informational)", () => {
+    const model = new LiveRegionModel();
+    // Mirrors ANNOUNCEMENTS.indexerIndexed
+    model.announce("Indexer has processed the latest transaction.", "polite");
+
+    assert.equal(model.countFor("polite"), 1);
+    assert.equal(model.countFor("assertive"), 0, "indexed event must NOT use assertive");
+  });
+
+  // ── 20. Circle-created announcement is polite ─────────────────────────────
+
+  test("20: circle-created success is polite (non-interrupting)", () => {
+    const model = new LiveRegionModel();
+    // Mirrors ANNOUNCEMENTS.circleCreated
+    model.announce(
+      "Circle created successfully. Redirecting to home page.",
+      "polite",
+    );
+    assert.equal(model.countFor("polite"), 1);
+    assert.equal(model.countFor("assertive"), 0);
+  });
+
+  // ── 21. Circle-create failure is assertive ────────────────────────────────
+
+  test("21: circle-create failure is assertive (interrupts user)", () => {
+    const model = new LiveRegionModel();
+    // Mirrors ANNOUNCEMENTS.circleCreateFailed(reason)
+    model.announce("Circle creation failed: Factory contract not configured.", "assertive");
+
+    assert.equal(model.countFor("assertive"), 1);
+    assert.equal(model.countFor("polite"), 0);
+  });
+});

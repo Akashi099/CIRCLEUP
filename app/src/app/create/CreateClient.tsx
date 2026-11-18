@@ -2,6 +2,7 @@
 import { DiagnosticsPanel } from "@/components/DiagnosticsPanel";
 import { parseContractError, userMessageForError, type ContractAppError } from "@/lib/contractErrors";
 import { observeWalletChanges } from "@/lib/walletIdentity";
+import { useAnnouncer, ANNOUNCEMENTS } from "@/lib/useAnnouncer";
 import { useDeploymentVerified, deploymentVerified } from "@/lib/deploymentState";
 import { useState, useId, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
@@ -386,6 +387,13 @@ function FieldError({ id, message }: { id: string; message: string | undefined }
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function CreateClient() {
+  // ── Accessible live-region announcer ────────────────────────────────────────
+  //
+  // Provides polite/assertive announcements for circle creation lifecycle
+  // events (submitting, success, failure) and wallet errors.  The
+  // AnnouncerPortal is rendered once at the root of this component.
+  const { announce, AnnouncerPortal } = useAnnouncer();
+
   const actionAbortRef = useRef<AbortController | null>(null);
   useEffect(() => {
     const stop = observeWalletChanges(() => { actionAbortRef.current?.abort(); });
@@ -555,17 +563,25 @@ export default function CreateClient() {
         walletAddress = await getWalletAddress();
       } catch (err) {
         if (err instanceof WalletError && err.reason === "not_installed") {
-          setSubmitError(
-            "Freighter wallet extension is not installed. Visit https://freighter.app to install it.",
-          );
+          const msg =
+            "Freighter wallet extension is not installed. Visit https://freighter.app to install it.";
+          setSubmitError(msg);
+          const a = ANNOUNCEMENTS.walletError(msg);
+          announce(a.message, a.politeness);
         } else {
-          setSubmitError("Unable to access your wallet. Unlock Freighter and reconnect.");
+          const msg = "Unable to access your wallet. Unlock Freighter and reconnect.";
+          setSubmitError(msg);
+          const a = ANNOUNCEMENTS.walletError(msg);
+          announce(a.message, a.politeness);
         }
         return;
       }
 
       if (!walletAddress) {
-        setSubmitError("Connect your Freighter wallet using the button in the top-right corner.");
+        const msg = "Connect your Freighter wallet using the button in the top-right corner.";
+        setSubmitError(msg);
+        const a = ANNOUNCEMENTS.walletError(msg);
+        announce(a.message, a.politeness);
         return;
       }
 
@@ -587,6 +603,7 @@ export default function CreateClient() {
 
       // ── Step 4: submit ────────────────────────────────────────────────────
       setLoading(true);
+      announce(ANNOUNCEMENTS.txSubmitting.message, ANNOUNCEMENTS.txSubmitting.politeness);
       const membersVec = xdr.ScVal.scvVec(
         validMembers.map((m) => new Address(m).toScVal()),
       );
@@ -609,18 +626,25 @@ export default function CreateClient() {
       if (!result.success) {
         setSupportError(result.typedError ?? parseContractError(result.error));
         if (result.txHash) setTxHash(result.txHash);
-        setSubmitError(userMessageForError(result.typedError ?? parseContractError(result.error)));
+        const errMsg = userMessageForError(result.typedError ?? parseContractError(result.error));
+        setSubmitError(errMsg);
+        const fa = ANNOUNCEMENTS.circleCreateFailed(errMsg);
+        announce(fa.message, fa.politeness);
         return;
       }
 
       setConfirmed(true);
       setTxHash(result.txHash ?? "");
+      announce(ANNOUNCEMENTS.circleCreated.message, ANNOUNCEMENTS.circleCreated.politeness);
       setTimeout(() => router.push("/"), 5000);
     } catch (err: unknown) {
       if (actionCtrl.signal.aborted) return;
       const safeError = parseContractError(err instanceof Error ? err.message : "");
       setSupportError(safeError);
-      setSubmitError(userMessageForError(safeError));
+      const errMsg = userMessageForError(safeError);
+      setSubmitError(errMsg);
+      const fa = ANNOUNCEMENTS.circleCreateFailed(errMsg);
+      announce(fa.message, fa.politeness);
     } finally {
       setLoading(false);
       submittingRef.current = false;
@@ -642,6 +666,12 @@ export default function CreateClient() {
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="max-w-xl mx-auto px-2 sm:px-0">
+      {/*
+        Accessible live-region portal — visually hidden, always in the DOM.
+        Screen readers watch this for state-change announcements from the
+        create-circle flow (submitting, success, error).
+      */}
+      <AnnouncerPortal />
       <h1 className="text-xl sm:text-2xl font-bold text-slate-900 mb-2">
         Create a Circle
       </h1>

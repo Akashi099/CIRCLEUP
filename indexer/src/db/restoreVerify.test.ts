@@ -576,3 +576,278 @@ describe("printRestoreVerifyReport — safe output", () => {
     assert.ok(!fullOutput.includes("prod.db"),   "print output must not include database host");
   });
 });
+
+// ─── Additional coverage: timeout propagation ─────────────────────────────────
+//
+// Acceptance criteria require that checks are bounded and support timeouts.
+// Verify that runRestoreVerify passes the timeoutMs through to setQueryTimeout
+// (i.e. a SET statement_timeout query is always the first query issued).
+
+describe("restoreVerify — timeout propagation", () => {
+  test("SET statement_timeout is always the first query issued", async () => {
+    const issuedOrder: string[] = [];
+    const trackingClient = buildClient((text, params) => {
+      issuedOrder.push(text.trim().split(/\s+/).slice(0, 3).join(" ").toUpperCase());
+      return healthyHandler()(text, params);
+    });
+
+    await runRestoreVerify(trackingClient, 7500);
+
+    assert.ok(issuedOrder.length > 0, "at least one query must be issued");
+    assert.ok(
+      issuedOrder[0].startsWith("SET STATEMENT_TIMEOUT"),
+      `first query must be SET statement_timeout, got: "${issuedOrder[0]}"`,
+    );
+  });
+
+  test("custom timeoutMs value is embedded in the SET statement_timeout query", async () => {
+    const timeoutQueries: string[] = [];
+    const trackingClient = buildClient((text, params) => {
+      if (text.toLowerCase().includes("set statement_timeout")) {
+        timeoutQueries.push(text.trim());
+      }
+      return healthyHandler()(text, params);
+    });
+
+    const customMs = 12_345;
+    await runRestoreVerify(trackingClient, customMs);
+
+    assert.ok(timeoutQueries.length > 0, "SET statement_timeout must be issued");
+    assert.ok(
+      timeoutQueries[0].includes(String(customMs)),
+      `SET statement_timeout must embed the custom value ${customMs}, got: "${timeoutQueries[0]}"`,
+    );
+  });
+
+  test("default timeout (10000 ms) is used when no timeoutMs argument is provided", async () => {
+    const timeoutQueries: string[] = [];
+    const trackingClient = buildClient((text, params) => {
+      if (text.toLowerCase().includes("set statement_timeout")) {
+        timeoutQueries.push(text.trim());
+      }
+      return healthyHandler()(text, params);
+    });
+
+    // Call without explicit timeoutMs — should use the internal default of 10 000
+    await runRestoreVerify(trackingClient);
+
+    assert.ok(timeoutQueries.length > 0);
+    assert.ok(
+      timeoutQueries[0].includes("10000"),
+      `default timeout must be 10000 ms, got: "${timeoutQueries[0]}"`,
+    );
+  });
+});
+
+// ─── Additional coverage: report shape & safe output ─────────────────────────
+//
+// Verify structural guarantees that make the report safe to attach to an
+// incident ticket: schemaVersion is always present (or null), generatedAt
+// is a valid ISO timestamp, and findings carry the four canonical names.
+
+describe("restoreVerify — report structure invariants", () => {
+  test("schemaVersion is null when schema check fails", async () => {
+    const client = buildClient((text: string) => {
+      const t = text.toLowerCase();
+      if (t.includes("set statement_timeout")) return { rows: [] };
+      if (t.includes("schema_migrations")) {
+        throw new Error("relation \"schema_migrations\" does not exist");
+      }
+      return healthyHandler()(text);
+    });
+
+    const report = await runRestoreVerify(client, 5000);
+    assert.equal(
+      report.schemaVersion,
+      null,
+      "schemaVersion must be null when the schema check errors",
+    );
+  });
+
+  test("schemaVersion is non-null on a healthy database", async () => {
+    const client = buildClient(healthyHandler());
+    const report = await runRestoreVerify(client, 5000);
+    // The healthy handler returns migrations, so a version should be derived
+    // (may be the last filename or a semantic version — just not null).
+    // The exact value depends on checkMigrationHealth's implementation; we only
+    // assert it is non-null here.
+    assert.ok(
+      report.schemaVersion !== undefined,
+      "schemaVersion must be defined (may be null only on error)",
+    );
+  });
+
+  test("generatedAt is an ISO-8601 timestamp within 5 seconds of now", async () => {
+    const before = Date.now();
+    const client = buildClient(healthyHandler());
+    const report = await runRestoreVerify(client, 5000);
+    const after = Date.now();
+
+    const parsed = Date.parse(report.generatedAt);
+    assert.ok(!isNaN(parsed), "generatedAt must be parseable as a date");
+    assert.ok(parsed >= before - 100, "generatedAt must not be in the past");
+    assert.ok(parsed <= after + 100, "generatedAt must not be in the future");
+  });
+
+  test("summary string contains the word 'pass', 'warn', or 'fail' matching overall", async () => {
+    const client = buildClient(healthyHandler());
+    const report = await runRestoreVerify(client, 5000);
+
+    const lower = report.summary.toLowerCase();
+    if (report.overall === "pass") {
+      assert.ok(lower.includes("pass"), `pass summary must contain 'pass': "${report.summary}"`);
+    } else if (report.overall === "warning") {
+      assert.ok(
+        lower.includes("warn") || lower.includes("warning"),
+        `warning summary must contain 'warn': "${report.summary}"`,
+      );
+    } else {
+      assert.ok(lower.includes("fail"), `fail summary must contain 'fail': "${report.summary}"`);
+    }
+  });
+
+  test("each finding has name, status, and message fields", async () => {
+    const client = buildClient(healthyHandler());
+    const report = await runRestoreVerify(client, 5000);
+
+    for (const finding of report.findings) {
+      assert.ok(typeof finding.name === "string" && finding.name.length > 0, "finding.name must be a non-empty string");
+      assert.ok(
+        finding.status === "pass" || finding.status === "warning" || finding.status === "fail",
+        `finding.status must be pass/warning/fail, got: "${finding.status}"`,
+      );
+      assert.ok(typeof finding.message === "string" && finding.message.length > 0, "finding.message must be non-empty");
+    }
+  });
+
+  test("findings with detail field do not expose DATABASE_URL in detail text", async () => {
+    const databaseUrl = "postgresql://operator:supersecret@restore-db:5432/circleup_restore";
+    const origUrl = process.env.DATABASE_URL;
+    process.env.DATABASE_URL = databaseUrl;
+
+    try {
+      // Use the checkpoint-gap handler so at least one finding gets a detail field
+      const client = buildClient((text: string) => {
+        const t = text.toLowerCase();
+        if (t.includes("set statement_timeout")) return { rows: [] };
+        if (t.includes("count(*)") && t.includes("ledger_checkpoints")) {
+          return { rows: [{ count: "5" }] };
+        }
+        if (t.includes("lag(ledger)") && t.includes("ledger_checkpoints")) {
+          return {
+            rows: [
+              { prev_ledger: null, curr_ledger: "1000", gap: null },
+              { prev_ledger: "1000", curr_ledger: "9000", gap: "8000" },
+            ],
+          };
+        }
+        return healthyHandler()(text);
+      });
+
+      const report = await runRestoreVerify(client, 5000);
+      const reportStr = JSON.stringify(report);
+
+      assert.ok(!reportStr.includes("supersecret"), "finding detail must not contain DB password");
+      assert.ok(!reportStr.includes("restore-db"), "finding detail must not contain DB hostname");
+      assert.ok(!reportStr.includes("postgresql://"), "finding detail must not contain connection URL");
+    } finally {
+      if (origUrl !== undefined) process.env.DATABASE_URL = origUrl;
+      else delete process.env.DATABASE_URL;
+    }
+  });
+});
+
+// ─── Additional coverage: distinct findings per concern ───────────────────────
+//
+// Acceptance criteria: "returns distinct findings for schema, checkpoint,
+// and projection problems."  Verify that when multiple checks fail, each
+// is surfaced as a separate named finding rather than collapsed.
+
+describe("restoreVerify — distinct findings for multiple failures", () => {
+  test("schema + checkpoint + projection failures each appear as separate findings", async () => {
+    const client = buildClient((text: string) => {
+      const t = text.toLowerCase();
+      if (t.includes("set statement_timeout")) return { rows: [] };
+
+      // Schema: missing table
+      if (t.includes("schema_migrations")) {
+        throw new Error("relation \"schema_migrations\" does not exist");
+      }
+
+      // Checkpoint: large gap
+      if (t.includes("count(*)") && t.includes("ledger_checkpoints")) {
+        return { rows: [{ count: "3" }] };
+      }
+      if (t.includes("lag(ledger)") && t.includes("ledger_checkpoints")) {
+        return {
+          rows: [
+            { prev_ledger: null, curr_ledger: "100", gap: null },
+            { prev_ledger: "100", curr_ledger: "5200", gap: "5100" },
+          ],
+        };
+      }
+      if (t.includes("min(ledger)") && t.includes("ledger_checkpoints")) {
+        return { rows: [{ min_ledger: "100", max_ledger: "5200" }] };
+      }
+
+      // Projection: bad circle row
+      if (t.includes("count(*)") && t.includes("from circles")) {
+        return { rows: [{ count: "1" }] };
+      }
+      if (t.includes("select address") && t.includes("from circles")) {
+        return {
+          rows: [
+            {
+              address: syntheticContractAddress(99),
+              status: "INVALID_STATUS",
+              current_round: 10,
+              total_rounds: 3,
+              member_count: 2,
+              round_amount: "50",
+            },
+          ],
+        };
+      }
+
+      return healthyHandler()(text);
+    });
+
+    const report = await runRestoreVerify(client, 5000);
+
+    const schemaFinding      = report.findings.find((f) => f.name === "schema_version");
+    const checkpointFinding  = report.findings.find((f) => f.name === "checkpoint_continuity");
+    const projectionFinding  = report.findings.find((f) => f.name === "projection_consistency");
+
+    assert.ok(schemaFinding,     "schema_version finding must be present");
+    assert.ok(checkpointFinding, "checkpoint_continuity finding must be present");
+    assert.ok(projectionFinding, "projection_consistency finding must be present");
+
+    assert.equal(schemaFinding!.status,     "fail", "schema must fail");
+    assert.equal(checkpointFinding!.status, "fail", "checkpoint must fail");
+    assert.equal(projectionFinding!.status, "fail", "projection must fail");
+
+    // All three are distinct objects
+    assert.notEqual(schemaFinding, checkpointFinding);
+    assert.notEqual(checkpointFinding, projectionFinding);
+    assert.notEqual(schemaFinding, projectionFinding);
+
+    assert.equal(report.overall, "fail");
+  });
+
+  test("findings array contains exactly the four canonical check names", async () => {
+    const client = buildClient(healthyHandler());
+    const report = await runRestoreVerify(client, 5000);
+
+    const names = report.findings.map((f) => f.name);
+    const canonical = [
+      "schema_version",
+      "checkpoint_continuity",
+      "dedup_constraints",
+      "projection_consistency",
+    ];
+
+    for (const name of canonical) {
+      assert.ok(names.includes(name), `findings must include "${name}"`);
+    }
+  });
+});

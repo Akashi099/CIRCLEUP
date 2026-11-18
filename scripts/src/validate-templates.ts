@@ -32,7 +32,7 @@ const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const GITHUB_DIR = path.join(REPO_ROOT, ".github");
 
 /** Template files to scan.  Paths are relative to REPO_ROOT. */
-function collectTemplatePaths(): string[] {
+export function collectTemplatePaths(): string[] {
   const paths: string[] = [];
 
   // All files under .github/ISSUE_TEMPLATE/
@@ -84,7 +84,7 @@ interface LinkOccurrence {
  */
 const RELATIVE_LINK_RE = /\[([^\]]*)\]\(([^)]+)\)/g;
 
-function extractRelativeLinks(filePath: string): LinkOccurrence[] {
+export function extractRelativeLinks(filePath: string): LinkOccurrence[] {
   const content = fs.readFileSync(filePath, "utf8");
   const lines = content.split("\n");
   const results: LinkOccurrence[] = [];
@@ -153,9 +153,71 @@ const REQUIRED_SAFETY_TOKENS: string[] = [
  * Returns the list of missing safety tokens for the bug-report template.
  * An empty array means all tokens are present.
  */
-function checkBugReportSafetyNotice(filePath: string): string[] {
+export function checkBugReportSafetyNotice(filePath: string): string[] {
   const content = fs.readFileSync(filePath, "utf8").toLowerCase();
   return REQUIRED_SAFETY_TOKENS.filter(
+    (token) => !content.includes(token.toLowerCase()),
+  );
+}
+
+// ── Feature-request component-checklist check ─────────────────────────────────
+
+/**
+ * Tokens that must appear in feature_request.md to confirm it carries an
+ * affected-component checklist.  We check for the presence of checkbox syntax
+ * combined with at least one known package name so ordinary rewording never
+ * trips the check.
+ *
+ * What each token represents:
+ *   "- [ ]"      → standard GitHub checkbox syntax — confirms a checklist exists
+ *   "contracts"  → at least one contracts/ entry exists in the list
+ *   "indexer"    → indexer package is listed
+ *   "app"        → app package is listed
+ */
+const REQUIRED_FEATURE_REQUEST_TOKENS: string[] = [
+  "- [ ]",
+  "contracts",
+  "indexer",
+  "app",
+];
+
+/**
+ * Returns the list of missing component-checklist tokens for the feature-request
+ * template.  An empty array means all tokens are present.
+ */
+export function checkFeatureRequestComponentList(filePath: string): string[] {
+  const content = fs.readFileSync(filePath, "utf8").toLowerCase();
+  return REQUIRED_FEATURE_REQUEST_TOKENS.filter(
+    (token) => !content.includes(token.toLowerCase()),
+  );
+}
+
+// ── PR template integrity check ───────────────────────────────────────────────
+
+/**
+ * Tokens that must appear in PULL_REQUEST_TEMPLATE.md to confirm it carries
+ * the required security-review and traceability sections.
+ *
+ * What each token represents:
+ *   "security"       → a contract security checklist section exists
+ *   "traceab"        → a traceability table or section exists
+ *   "changelog"      → contributor is reminded to update CHANGELOG.md
+ *   "- [ ]"          → at least one actionable checkbox is present
+ */
+const REQUIRED_PR_TEMPLATE_TOKENS: string[] = [
+  "security",
+  "traceab",
+  "changelog",
+  "- [ ]",
+];
+
+/**
+ * Returns the list of missing integrity tokens for the PR template.
+ * An empty array means all tokens are present.
+ */
+export function checkPrTemplateIntegrity(filePath: string): string[] {
+  const content = fs.readFileSync(filePath, "utf8").toLowerCase();
+  return REQUIRED_PR_TEMPLATE_TOKENS.filter(
     (token) => !content.includes(token.toLowerCase()),
   );
 }
@@ -226,7 +288,36 @@ function run(): void {
     });
   }
 
-  // ── 3. PR template must exist ─────────────────────────────────────────────
+  // ── 3. Feature-request component checklist ───────────────────────────────
+  //
+  // feature_request.md must include at least one checkbox item that lets
+  // contributors identify which part of the codebase their request targets.
+  // This keeps triage tractable across the monorepo structure.
+  const featureRequestPath = path.join(
+    GITHUB_DIR,
+    "ISSUE_TEMPLATE",
+    "feature_request.md",
+  );
+  if (fs.existsSync(featureRequestPath)) {
+    const missing = checkFeatureRequestComponentList(featureRequestPath);
+    for (const token of missing) {
+      failures.push({
+        location: relPath(featureRequestPath),
+        message:
+          `missing required component-checklist content — expected "${token}" ` +
+          `to appear so contributors can identify which package their request affects.`,
+      });
+    }
+  } else {
+    failures.push({
+      location: relPath(featureRequestPath),
+      message:
+        "feature_request.md not found — the repository must have a feature-request " +
+        "template with an affected-component checklist for triage.",
+    });
+  }
+
+  // ── 4. PR template must exist and carry security + traceability sections ──
   const prTemplatePath = path.join(GITHUB_DIR, "PULL_REQUEST_TEMPLATE.md");
   if (!fs.existsSync(prTemplatePath)) {
     failures.push({
@@ -234,6 +325,16 @@ function run(): void {
       message:
         "PULL_REQUEST_TEMPLATE.md not found — the repository must have a PR template.",
     });
+  } else {
+    const missingPr = checkPrTemplateIntegrity(prTemplatePath);
+    for (const token of missingPr) {
+      failures.push({
+        location: relPath(prTemplatePath),
+        message:
+          `missing required PR template section — expected "${token}" ` +
+          `to be present so reviewers can verify security and traceability.`,
+      });
+    }
   }
 
   // ── Output ────────────────────────────────────────────────────────────────

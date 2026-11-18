@@ -367,3 +367,275 @@ const REQUIRED_SAFETY_TOKENS = [
   "api key",
   "SECURITY.md",
 ];
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Feature-request component-checklist check
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Re-implement the checker inline (same pattern as the safety-notice tests
+// above) so the tests are self-contained and do not trigger process.exit.
+
+const REQUIRED_FEATURE_REQUEST_TOKENS = ["- [ ]", "contracts", "indexer", "app"];
+
+function checkFeatureRequestComponentList(content: string): string[] {
+  const lower = content.toLowerCase();
+  return REQUIRED_FEATURE_REQUEST_TOKENS.filter(
+    (token) => !lower.includes(token.toLowerCase()),
+  );
+}
+
+const FULL_FEATURE_REQUEST = `
+## Affected Component
+
+- [ ] \`contracts/circle\`
+- [ ] \`contracts/circle_factory\`
+- [ ] \`contracts/reputation\`
+- [ ] \`sdk\`
+- [ ] \`indexer\`
+- [ ] \`app\`
+- [ ] \`scripts\`
+- [ ] Documentation
+`.trim();
+
+describe("checkFeatureRequestComponentList", () => {
+  test("returns no missing tokens when all required items are present", () => {
+    const missing = checkFeatureRequestComponentList(FULL_FEATURE_REQUEST);
+    assert.deepEqual(missing, [], "fully compliant feature request must have no missing tokens");
+  });
+
+  test("detects missing checkbox syntax '- [ ]'", () => {
+    const content = FULL_FEATURE_REQUEST.replace(/- \[ \]/g, "* ");
+    const missing = checkFeatureRequestComponentList(content);
+    assert.ok(missing.includes("- [ ]"), "must flag missing checkbox syntax");
+  });
+
+  test("detects missing 'contracts' entry", () => {
+    const content = FULL_FEATURE_REQUEST.replace(/contracts/gi, "REMOVED");
+    const missing = checkFeatureRequestComponentList(content);
+    assert.ok(missing.includes("contracts"));
+  });
+
+  test("detects missing 'indexer' entry", () => {
+    const content = FULL_FEATURE_REQUEST.replace(/indexer/gi, "REMOVED");
+    const missing = checkFeatureRequestComponentList(content);
+    assert.ok(missing.includes("indexer"));
+  });
+
+  test("detects missing 'app' entry", () => {
+    const content = FULL_FEATURE_REQUEST.replace(/\bapp\b/gi, "REMOVED");
+    const missing = checkFeatureRequestComponentList(content);
+    assert.ok(missing.includes("app"));
+  });
+
+  test("completely empty content fails all tokens", () => {
+    const missing = checkFeatureRequestComponentList("");
+    assert.equal(
+      missing.length,
+      REQUIRED_FEATURE_REQUEST_TOKENS.length,
+      "empty content must fail every token",
+    );
+  });
+
+  test("partial content fails only the missing tokens", () => {
+    const content = "- [ ] `app`\n- [ ] `indexer`";
+    const missing = checkFeatureRequestComponentList(content);
+    assert.ok(!missing.includes("- [ ]"), "checkbox syntax is present");
+    assert.ok(!missing.includes("app"),    "'app' is present");
+    assert.ok(!missing.includes("indexer"), "'indexer' is present");
+    assert.ok(missing.includes("contracts"), "'contracts' is absent");
+  });
+
+  test("check is case-insensitive (uppercased content still passes)", () => {
+    const missing = checkFeatureRequestComponentList(FULL_FEATURE_REQUEST.toUpperCase());
+    // "- [ ]" is not affected by toUpperCase; others are lowercased in comparison
+    assert.deepEqual(missing, []);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PR template integrity check
+// ══════════════════════════════════════════════════════════════════════════════
+
+const REQUIRED_PR_TEMPLATE_TOKENS = ["security", "traceab", "changelog", "- [ ]"];
+
+function checkPrTemplateIntegrity(content: string): string[] {
+  const lower = content.toLowerCase();
+  return REQUIRED_PR_TEMPLATE_TOKENS.filter(
+    (token) => !lower.includes(token.toLowerCase()),
+  );
+}
+
+const FULL_PR_TEMPLATE = `
+## Summary
+
+## Traceability
+
+| Acceptance criterion | Evidence |
+|---|---|
+|  |  |
+
+## Contract security checklist
+
+<details>
+<summary>Contract security review</summary>
+See docs/CONTRACT_SECURITY_CHECKLIST.md
+</details>
+
+## Checklist
+
+- [ ] I have updated \`CHANGELOG.md\` under \`[Unreleased]\`
+- [ ] CI passes on this branch
+`.trim();
+
+describe("checkPrTemplateIntegrity", () => {
+  test("returns no missing tokens when all required sections are present", () => {
+    const missing = checkPrTemplateIntegrity(FULL_PR_TEMPLATE);
+    assert.deepEqual(missing, [], "fully compliant PR template must have no missing tokens");
+  });
+
+  test("detects missing 'security' section", () => {
+    const content = FULL_PR_TEMPLATE.replace(/security/gi, "REMOVED");
+    const missing = checkPrTemplateIntegrity(content);
+    assert.ok(missing.includes("security"));
+  });
+
+  test("detects missing traceability section", () => {
+    const content = FULL_PR_TEMPLATE.replace(/traceab/gi, "REMOVED");
+    const missing = checkPrTemplateIntegrity(content);
+    assert.ok(missing.includes("traceab"));
+  });
+
+  test("detects missing changelog reminder", () => {
+    const content = FULL_PR_TEMPLATE.replace(/changelog/gi, "REMOVED");
+    const missing = checkPrTemplateIntegrity(content);
+    assert.ok(missing.includes("changelog"));
+  });
+
+  test("detects missing checkbox syntax", () => {
+    const content = FULL_PR_TEMPLATE.replace(/- \[ \]/g, "* ");
+    const missing = checkPrTemplateIntegrity(content);
+    assert.ok(missing.includes("- [ ]"));
+  });
+
+  test("completely empty content fails all tokens", () => {
+    const missing = checkPrTemplateIntegrity("");
+    assert.equal(missing.length, REQUIRED_PR_TEMPLATE_TOKENS.length);
+  });
+
+  test("partial content fails only the missing tokens", () => {
+    const content = "security checklist\n- [ ] done\nchangelog updated";
+    const missing = checkPrTemplateIntegrity(content);
+    assert.ok(!missing.includes("security"));
+    assert.ok(!missing.includes("- [ ]"));
+    assert.ok(!missing.includes("changelog"));
+    assert.ok(missing.includes("traceab"), "'traceab' is absent");
+  });
+
+  test("check is case-insensitive", () => {
+    const missing = checkPrTemplateIntegrity(FULL_PR_TEMPLATE.toUpperCase());
+    // "- [ ]" is unaffected by toUpperCase
+    assert.deepEqual(missing, []);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Real repo template smoke tests (feature_request + PR)
+// ══════════════════════════════════════════════════════════════════════════════
+
+describe("real repo templates — feature_request and PR integrity", () => {
+  const REPO_ROOT = path.resolve(__dirname, "..", "..");
+  const GITHUB_DIR = path.join(REPO_ROOT, ".github");
+  const FEATURE_REQUEST = path.join(GITHUB_DIR, "ISSUE_TEMPLATE", "feature_request.md");
+  const PR_TEMPLATE = path.join(GITHUB_DIR, "PULL_REQUEST_TEMPLATE.md");
+
+  test("feature_request.md exists", () => {
+    assert.ok(
+      fs.existsSync(FEATURE_REQUEST),
+      "feature_request.md must exist under .github/ISSUE_TEMPLATE/",
+    );
+  });
+
+  test("feature_request.md passes all component-checklist checks", () => {
+    if (!fs.existsSync(FEATURE_REQUEST)) return;
+    const content = fs.readFileSync(FEATURE_REQUEST, "utf8");
+    const missing = checkFeatureRequestComponentList(content);
+    assert.deepEqual(
+      missing,
+      [],
+      `feature_request.md is missing component-checklist tokens: ${missing.join(", ")}`,
+    );
+  });
+
+  test("feature_request.md has no broken relative links", () => {
+    if (!fs.existsSync(FEATURE_REQUEST)) return;
+    const content = fs.readFileSync(FEATURE_REQUEST, "utf8");
+    const fileDir = path.dirname(FEATURE_REQUEST);
+    const links = extractRelativeLinks(content, fileDir);
+    const broken = links.filter((l) => !fs.existsSync(l.resolvedPath));
+    assert.deepEqual(
+      broken.map((l) => `${l.line}: ${l.rawLink}`),
+      [],
+      "feature_request.md must not contain broken relative links",
+    );
+  });
+
+  test("PULL_REQUEST_TEMPLATE.md passes all integrity checks", () => {
+    if (!fs.existsSync(PR_TEMPLATE)) return;
+    const content = fs.readFileSync(PR_TEMPLATE, "utf8");
+    const missing = checkPrTemplateIntegrity(content);
+    assert.deepEqual(
+      missing,
+      [],
+      `PULL_REQUEST_TEMPLATE.md is missing required sections: ${missing.join(", ")}`,
+    );
+  });
+
+  test("PULL_REQUEST_TEMPLATE.md has no broken relative links", () => {
+    if (!fs.existsSync(PR_TEMPLATE)) return;
+    const content = fs.readFileSync(PR_TEMPLATE, "utf8");
+    const fileDir = path.dirname(PR_TEMPLATE);
+    const links = extractRelativeLinks(content, fileDir);
+    const broken = links.filter((l) => !fs.existsSync(l.resolvedPath));
+    assert.deepEqual(
+      broken.map((l) => `${l.line}: ${l.rawLink}`),
+      [],
+      "PULL_REQUEST_TEMPLATE.md must not contain broken relative links",
+    );
+  });
+});
+
+// Re-export for inline use in the describe blocks above
+// (mirrors the pattern already in this file)
+function extractRelativeLinks(
+  content: string,
+  fileDir: string,
+): Array<{ line: number; rawLink: string; resolvedPath: string }> {
+  const lines = content.split("\n");
+  const results: Array<{ line: number; rawLink: string; resolvedPath: string }> = [];
+  const RE = /\[([^\]]*)\]\(([^)]+)\)/g;
+
+  lines.forEach((lineText, idx) => {
+    let match: RegExpExecArray | null;
+    RE.lastIndex = 0;
+    while ((match = RE.exec(lineText)) !== null) {
+      const rawLink = match[2].trim();
+      if (
+        rawLink.startsWith("http://") ||
+        rawLink.startsWith("https://") ||
+        rawLink.startsWith("#") ||
+        rawLink.startsWith("mailto:")
+      ) {
+        continue;
+      }
+      const linkWithoutFragment = rawLink.split("#")[0];
+      if (!linkWithoutFragment) continue;
+      results.push({
+        line: idx + 1,
+        rawLink,
+        resolvedPath: path.resolve(fileDir, linkWithoutFragment),
+      });
+    }
+  });
+
+  return results;
+}
