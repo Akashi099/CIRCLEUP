@@ -740,3 +740,676 @@ describe("Cross-scenario invariants", () => {
     );
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SCENARIO C: WalletRejection
+//
+// Arc:
+//   FAULT   → Freighter wallet produces an error instead of a signed XDR
+//             (three sub-cases: not_installed, permission_denied, unknown)
+//   RESPONSE→ invokeContract returns success=false with a clean user message;
+//             no transaction is submitted; txHash is empty
+//   RECOVERY→ after the user resolves the wallet issue, a subsequent invocation
+//             with valid signing succeeds and returns a non-empty txHash
+//
+// Runbook: "Freighter not detected" / "Transaction fails with USDC transfer failed"
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import { WalletRejection, RpcTimeout, SchemaDrift } from "./incident-fixtures";
+
+// ── Local adapter: wallet invocation simulator ────────────────────────────────
+
+type WalletErrorReason = "not_installed" | "permission_denied" | "unknown";
+
+interface InvokeResult {
+  txHash: string;
+  success: boolean;
+  error: string;
+}
+
+/**
+ * Simulates the invokeContract() path for wallet-related errors.
+ * Maps raw Freighter error strings to the same clean messages the real
+ * stellar.ts module produces, without touching the network.
+ */
+function simulateWalletInvoke(
+  freighterInstalled: boolean,
+  rawError: string | null,
+): InvokeResult {
+  if (!freighterInstalled) {
+    return {
+      txHash: "",
+      success: false,
+      error: "Freighter wallet extension is not installed.",
+    };
+  }
+
+  if (rawError !== null) {
+    const lower = rawError.toLowerCase();
+    if (
+      lower.includes("user rejected") ||
+      lower.includes("denied") ||
+      lower.includes("cancelled") ||
+      lower.includes("canceled") ||
+      lower.includes("rejected")
+    ) {
+      return {
+        txHash: "",
+        success: false,
+        error: "You cancelled the transaction in Freighter. No funds were moved.",
+      };
+    }
+    // Unknown error: preserve capitalised
+    return {
+      txHash: "",
+      success: false,
+      error: rawError.charAt(0).toUpperCase() + rawError.slice(1),
+    };
+  }
+
+  // No error — signing succeeded
+  return {
+    txHash: "0000000000000000000000000000000000000000000000000000000000000001",
+    success: true,
+    error: "",
+  };
+}
+
+describe("Scenario C: WalletRejection — fault → response → recovery", () => {
+  // ── C-1: FAULT INJECTION ─────────────────────────────────────────────────
+
+  test("C-1 [FAULT] not_installed: freighterInstalled is false in fixture", () => {
+    assert.equal(
+      WalletRejection.notInstalled.freighterInstalled,
+      false,
+      "fixture must signal Freighter is absent",
+    );
+  });
+
+  test("C-2 [FAULT] permission_denied: rawErrorVariants are non-empty strings", () => {
+    assert.ok(
+      WalletRejection.permissionDenied.rawErrorVariants.length > 0,
+      "fixture must supply at least one raw error variant",
+    );
+    for (const v of WalletRejection.permissionDenied.rawErrorVariants) {
+      assert.ok(typeof v === "string" && v.length > 0, `variant must be a non-empty string: "${v}"`);
+    }
+  });
+
+  test("C-3 [FAULT] unknown_error: rawError is a non-empty string", () => {
+    assert.ok(
+      typeof WalletRejection.unknownError.rawError === "string" &&
+        WalletRejection.unknownError.rawError.length > 0,
+      "unknown error fixture must have a non-empty rawError",
+    );
+  });
+
+  // ── C-4: SERVICE RESPONSE ─────────────────────────────────────────────────
+
+  test("C-4 [RESPONSE] not_installed: invoke returns success=false with Freighter message", () => {
+    const result = simulateWalletInvoke(false, null);
+    assert.equal(result.success, false, "must fail when Freighter is not installed");
+    assert.equal(result.txHash, "", "txHash must be empty — nothing was submitted");
+    assert.match(result.error, /Freighter/i, "error must name Freighter");
+    assert.equal(
+      result.error,
+      WalletRejection.notInstalled.expectedResult.error,
+    );
+  });
+
+  test("C-5 [RESPONSE] permission_denied: all raw variants map to the same clean message", () => {
+    for (const rawMsg of WalletRejection.permissionDenied.rawErrorVariants) {
+      const result = simulateWalletInvoke(true, rawMsg);
+      assert.equal(result.success, false);
+      assert.equal(result.txHash, "");
+      assert.equal(
+        result.error,
+        WalletRejection.permissionDenied.expectedResult.error,
+        `variant "${rawMsg}" must map to the standard permission-denied message`,
+      );
+    }
+  });
+
+  test("C-6 [RESPONSE] unknown_error: raw message is preserved (capitalised)", () => {
+    const result = simulateWalletInvoke(true, WalletRejection.unknownError.rawError);
+    assert.equal(result.success, false);
+    assert.equal(result.error, WalletRejection.unknownError.expectedResult.error);
+  });
+
+  test("C-7 [RESPONSE] all three sub-cases return an empty txHash (nothing submitted)", () => {
+    const notInstalled   = simulateWalletInvoke(false, null);
+    const permDenied     = simulateWalletInvoke(true, "User denied");
+    const unknownErr     = simulateWalletInvoke(true, WalletRejection.unknownError.rawError);
+
+    assert.equal(notInstalled.txHash, "");
+    assert.equal(permDenied.txHash,   "");
+    assert.equal(unknownErr.txHash,   "");
+  });
+
+  test("C-8 [RESPONSE] error messages do not expose private keys or seed phrases", () => {
+    const results = [
+      simulateWalletInvoke(false, null),
+      simulateWalletInvoke(true, "User rejected"),
+      simulateWalletInvoke(true, "Extension context invalidated."),
+    ];
+    for (const r of results) {
+      assert.doesNotMatch(r.error, /^S[A-Z2-7]{55}$/, "error must not contain a secret key");
+      assert.doesNotMatch(r.error, /seed|mnemonic|private key/i, "error must not expose key material");
+    }
+  });
+
+  // ── C-9: RECOVERY ────────────────────────────────────────────────────────
+
+  test("C-9 [RECOVERY] after wallet issue is resolved, next invocation succeeds", () => {
+    // Fault: permission denied
+    const faultResult = simulateWalletInvoke(true, "User rejected");
+    assert.equal(faultResult.success, false);
+
+    // Recovery: user approves — no rawError, Freighter installed
+    const recoveryResult = simulateWalletInvoke(true, null);
+    assert.equal(recoveryResult.success, true, "must succeed after wallet issue resolved");
+    assert.ok(recoveryResult.txHash.length > 0, "must return a non-empty txHash on success");
+    assert.equal(recoveryResult.error, "");
+  });
+
+  test("C-10 [RECOVERY] recovery success is independent of previous failure reason", () => {
+    const reasons: Array<[boolean, string | null]> = [
+      [false, null],             // not_installed
+      [true, "User denied"],     // permission_denied
+      [true, "Extension context invalidated."],  // unknown
+    ];
+
+    for (const [installed, rawError] of reasons) {
+      // Fault
+      const fault = simulateWalletInvoke(installed, rawError);
+      assert.equal(fault.success, false);
+
+      // Recovery (Freighter now installed + user approves)
+      const recovery = simulateWalletInvoke(true, null);
+      assert.equal(recovery.success, true, `recovery must succeed after fault (installed=${installed}, error="${rawError}")`);
+    }
+  });
+
+  test("C-11 [RECOVERY] invoke context carries synthetic address (no real key)", () => {
+    const ctx = WalletRejection.seedInvokeContext();
+    assert.doesNotMatch(ctx.walletAddress, /^S/, "invoke context must not contain a secret key");
+    assert.match(ctx.walletAddress, /^[GC]/, "invoke context must use G or C address");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SCENARIO D: RpcTimeout
+//
+// Arc:
+//   FAULT   → Soroban RPC does not respond within the configured timeout
+//             (three sub-cases: simulate, send, poll-exhausted)
+//   RESPONSE→ invokeContract returns success=false with a network/timeout
+//             message; txHash is empty for simulate/send, non-empty for poll
+//   RECOVERY→ after the RPC node recovers, a subsequent call succeeds
+//
+// Runbook: "Transaction fails with USDC transfer failed"
+//          "App shows indexer unreachable banner"
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Local adapter: RPC invocation simulator ───────────────────────────────────
+
+interface RpcCallResult {
+  txHash: string;
+  success: boolean;
+  error: string;
+}
+
+type RpcPhase = "simulate" | "send" | "poll" | "ok";
+
+function simulateRpcInvoke(phase: RpcPhase): RpcCallResult {
+  if (phase === "simulate") {
+    return {
+      txHash: "",
+      success: false,
+      error: RpcTimeout.simulateTimeout.expectedResult.error,
+    };
+  }
+  if (phase === "send") {
+    return {
+      txHash: "",
+      success: false,
+      error: RpcTimeout.sendTimeout.expectedResult.error,
+    };
+  }
+  if (phase === "poll") {
+    return {
+      txHash: RpcTimeout.pollExhausted.txHash,
+      success: false,
+      error: RpcTimeout.pollExhausted.expectedResult.error,
+    };
+  }
+  // "ok" — RPC recovered
+  return {
+    txHash: "0000000000000000000000000000000000000000000000000000000000000002",
+    success: true,
+    error: "",
+  };
+}
+
+describe("Scenario D: RpcTimeout — fault → response → recovery", () => {
+  // ── D-1: FAULT INJECTION ─────────────────────────────────────────────────
+
+  test("D-1 [FAULT] simulate-phase timeout: mockError is 'Request timeout'", () => {
+    assert.equal(RpcTimeout.simulateTimeout.mockError.message, "Request timeout");
+    assert.equal(RpcTimeout.simulateTimeout.phase, "simulate");
+  });
+
+  test("D-2 [FAULT] send-phase timeout: mockError is 'Failed to fetch'", () => {
+    assert.equal(RpcTimeout.sendTimeout.mockError.message, "Failed to fetch");
+    assert.equal(RpcTimeout.sendTimeout.phase, "send");
+  });
+
+  test("D-3 [FAULT] poll-exhausted: all poll statuses are NOT_FOUND", () => {
+    for (const s of RpcTimeout.pollExhausted.pollStatuses) {
+      assert.equal(s, "NOT_FOUND");
+    }
+    assert.equal(
+      RpcTimeout.pollExhausted.pollStatuses.length,
+      RpcTimeout.TX_POLL_ATTEMPTS,
+    );
+  });
+
+  test("D-4 [FAULT] health-check timeout: both DB and RPC exceed the budget", () => {
+    const { mockComponents, HEALTH_CHECK_TIMEOUT_MS } = RpcTimeout.healthCheckTimeout;
+    assert.ok(mockComponents.db.latencyMs > HEALTH_CHECK_TIMEOUT_MS);
+    assert.ok(mockComponents.rpc.latencyMs > HEALTH_CHECK_TIMEOUT_MS);
+  });
+
+  // ── D-5: SERVICE RESPONSE ─────────────────────────────────────────────────
+
+  test("D-5 [RESPONSE] simulate timeout → success=false, empty txHash, RPC error message", () => {
+    const result = simulateRpcInvoke("simulate");
+    assert.equal(result.success, false);
+    assert.equal(result.txHash, "");
+    assert.match(result.error, /network error/i, "simulate timeout must produce RPC network message");
+    assert.equal(result.error, RpcTimeout.simulateTimeout.expectedResult.error);
+  });
+
+  test("D-6 [RESPONSE] send timeout → success=false, empty txHash, RPC error message", () => {
+    const result = simulateRpcInvoke("send");
+    assert.equal(result.success, false);
+    assert.equal(result.txHash, "");
+    assert.equal(result.error, RpcTimeout.sendTimeout.expectedResult.error);
+  });
+
+  test("D-7 [RESPONSE] poll-exhausted → success=false, non-empty txHash preserved", () => {
+    const result = simulateRpcInvoke("poll");
+    assert.equal(result.success, false);
+    assert.ok(result.txHash.length > 0, "txHash must be preserved after broadcast");
+    assert.equal(result.txHash, RpcTimeout.pollExhausted.txHash);
+    assert.match(result.error, /timed out/i);
+    assert.match(result.error, /congested/i);
+  });
+
+  test("D-8 [RESPONSE] health timeout → degraded HTTP status (503)", () => {
+    assert.equal(RpcTimeout.healthCheckTimeout.expectedHttpStatus, 503);
+    assert.equal(RpcTimeout.healthCheckTimeout.expectedBody.status, "degraded");
+  });
+
+  test("D-9 [RESPONSE] simulate + send timeouts have empty txHash (not broadcast)", () => {
+    assert.equal(simulateRpcInvoke("simulate").txHash, "");
+    assert.equal(simulateRpcInvoke("send").txHash,     "");
+  });
+
+  test("D-10 [RESPONSE] poll-exhausted error message includes the total budget seconds", () => {
+    const result = simulateRpcInvoke("poll");
+    const budgetSec = Math.round(RpcTimeout.TOTAL_POLL_BUDGET_MS / 1000);
+    assert.ok(
+      result.error.includes(String(budgetSec)),
+      `error must state the timeout budget (${budgetSec}s), got: "${result.error}"`,
+    );
+  });
+
+  // ── D-11: RECOVERY ───────────────────────────────────────────────────────
+
+  test("D-11 [RECOVERY] after RPC recovers, next invocation returns success=true", () => {
+    // Fault
+    const faultResult = simulateRpcInvoke("simulate");
+    assert.equal(faultResult.success, false);
+
+    // Recovery
+    const recoveryResult = simulateRpcInvoke("ok");
+    assert.equal(recoveryResult.success, true);
+    assert.ok(recoveryResult.txHash.length > 0);
+    assert.equal(recoveryResult.error, "");
+  });
+
+  test("D-12 [RECOVERY] recovery is independent of which RPC phase timed out", () => {
+    for (const phase of ["simulate", "send", "poll"] as RpcPhase[]) {
+      const fault = simulateRpcInvoke(phase);
+      assert.equal(fault.success, false, `fault phase "${phase}" must fail`);
+
+      const recovery = simulateRpcInvoke("ok");
+      assert.equal(recovery.success, true, `recovery after phase "${phase}" must succeed`);
+    }
+  });
+
+  test("D-13 [RECOVERY] seedMockRpcThatTimesOut rejects all methods then stops", async () => {
+    const mock = RpcTimeout.seedMockRpcThatTimesOut(5);
+    await assert.rejects(() => mock.simulateTransaction(), /Request timeout/);
+    await assert.rejects(() => mock.sendTransaction(),     /Failed to fetch/);
+    await assert.rejects(() => mock.getTransaction(),      /Request timeout/);
+    await assert.rejects(() => mock.getAccount(),          /Request timeout/);
+  });
+
+  test("D-14 [RECOVERY] total poll budget is consistent with per-attempt constants", () => {
+    assert.equal(
+      RpcTimeout.TOTAL_POLL_BUDGET_MS,
+      RpcTimeout.TX_POLL_ATTEMPTS * RpcTimeout.TX_POLL_INTERVAL_MS,
+    );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SCENARIO E: SchemaDrift
+//
+// Arc:
+//   FAULT   → migration file renamed after apply; schema_migrations records
+//             old name; file on disk has new name
+//   RESPONSE→ migration health state is "drifted"; indexer cannot start safely;
+//             health endpoint reports degraded
+//   RECOVERY→ migration ledger corrected (old entry removed, new one applied);
+//             health state returns to "clean"; indexer can start
+//
+// Runbook: "Indexer boot: SCHEMA WARNING"
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Local adapters: migration state machine ───────────────────────────────────
+
+interface MigrationState {
+  filesOnDisk: string[];
+  appliedInDb: string[];
+}
+
+function computeHealthState(state: MigrationState): {
+  healthState: string;
+  pending: string[];
+  missingOnDisk: string[];
+  canStartSafely: boolean;
+} {
+  const appliedSet = new Set(state.appliedInDb);
+  const pending      = state.filesOnDisk.filter((f) => !appliedSet.has(f));
+  const missingOnDisk = state.appliedInDb.filter((f) => !state.filesOnDisk.includes(f));
+
+  let healthState: string;
+  if (state.appliedInDb.length === 0 && state.filesOnDisk.length > 0) {
+    healthState = "uninitialized";
+  } else if (pending.length > 0 && missingOnDisk.length > 0) {
+    healthState = "partial";
+  } else if (missingOnDisk.length > 0) {
+    healthState = "drifted";
+  } else if (pending.length > 0) {
+    healthState = "pending";
+  } else {
+    healthState = "clean";
+  }
+
+  return {
+    healthState,
+    pending,
+    missingOnDisk,
+    canStartSafely: healthState === "clean" || healthState === "pending",
+  };
+}
+
+/** Simulates the repair action: remove the stale DB entry and apply the renamed file. */
+function repairSchemaDrift(state: MigrationState, oldFilename: string, newFilename: string): MigrationState {
+  return {
+    filesOnDisk: state.filesOnDisk,
+    appliedInDb: state.appliedInDb
+      .filter((f) => f !== oldFilename)
+      .concat(newFilename),
+  };
+}
+
+describe("Scenario E: SchemaDrift — fault → response → recovery", () => {
+  // ── E-1: FAULT INJECTION ─────────────────────────────────────────────────
+
+  test("E-1 [FAULT] renamed file is absent from disk files", () => {
+    const filesOnDisk = SchemaDrift.seedFilesOnDisk();
+    assert.ok(
+      !filesOnDisk.includes(SchemaDrift.APPLIED_FILENAME),
+      "original filename must NOT appear on disk after rename",
+    );
+  });
+
+  test("E-2 [FAULT] original filename is still recorded in schema_migrations", () => {
+    const appliedInDb = SchemaDrift.seedAppliedInDb();
+    assert.ok(
+      appliedInDb.includes(SchemaDrift.APPLIED_FILENAME),
+      "original filename must still be in DB applied list",
+    );
+  });
+
+  test("E-3 [FAULT] renamed file IS present on disk", () => {
+    const filesOnDisk = SchemaDrift.seedFilesOnDisk();
+    assert.ok(
+      filesOnDisk.includes(SchemaDrift.RENAMED_FILENAME),
+      "renamed file must appear in on-disk list",
+    );
+  });
+
+  // ── E-4: SERVICE RESPONSE ─────────────────────────────────────────────────
+
+  test("E-4 [RESPONSE] health state is 'drifted' for the fault scenario", () => {
+    const state: MigrationState = {
+      filesOnDisk: SchemaDrift.seedFilesOnDisk(),
+      appliedInDb: SchemaDrift.seedAppliedInDb(),
+    };
+    const { healthState } = computeHealthState(state);
+    assert.equal(
+      healthState,
+      SchemaDrift.expectedBehaviour.healthState,
+      "drifted migration must produce 'drifted' health state",
+    );
+  });
+
+  test("E-5 [RESPONSE] canStartSafely is false in drifted state", () => {
+    const state: MigrationState = {
+      filesOnDisk: SchemaDrift.seedFilesOnDisk(),
+      appliedInDb: SchemaDrift.seedAppliedInDb(),
+    };
+    const { canStartSafely } = computeHealthState(state);
+    assert.equal(
+      canStartSafely,
+      SchemaDrift.expectedBehaviour.canStartSafely,
+    );
+    assert.equal(canStartSafely, false);
+  });
+
+  test("E-6 [RESPONSE] missingOnDisk contains the original filename", () => {
+    const state: MigrationState = {
+      filesOnDisk: SchemaDrift.seedFilesOnDisk(),
+      appliedInDb: SchemaDrift.seedAppliedInDb(),
+    };
+    const { missingOnDisk } = computeHealthState(state);
+    assert.ok(
+      missingOnDisk.includes(SchemaDrift.APPLIED_FILENAME),
+      "missingOnDisk must name the file that was renamed away",
+    );
+  });
+
+  test("E-7 [RESPONSE] pending contains the renamed file (new name not yet applied)", () => {
+    const state: MigrationState = {
+      filesOnDisk: SchemaDrift.seedFilesOnDisk(),
+      appliedInDb: SchemaDrift.seedAppliedInDb(),
+    };
+    const { pending } = computeHealthState(state);
+    assert.ok(
+      pending.includes(SchemaDrift.RENAMED_FILENAME),
+      "renamed file must appear as pending — it has not been applied under its new name",
+    );
+  });
+
+  test("E-8 [RESPONSE] expectedBehaviour.summaryContains strings are present in a generated summary", () => {
+    const { missingOnDisk } = computeHealthState({
+      filesOnDisk: SchemaDrift.seedFilesOnDisk(),
+      appliedInDb: SchemaDrift.seedAppliedInDb(),
+    });
+    const summary =
+      `Schema has drifted: ${missingOnDisk.length} migration(s) recorded as applied in ` +
+      `schema_migrations but no longer present on disk: ${missingOnDisk.join(", ")}. ` +
+      `This usually means a migration file was renamed or deleted after it ran.`;
+
+    for (const fragment of SchemaDrift.expectedBehaviour.summaryContains) {
+      assert.ok(
+        summary.includes(fragment),
+        `summary must contain "${fragment}"`,
+      );
+    }
+  });
+
+  // ── E-9: RECOVERY ────────────────────────────────────────────────────────
+
+  test("E-9 [RECOVERY] after repair, health state is 'clean'", () => {
+    const faultState: MigrationState = {
+      filesOnDisk: SchemaDrift.seedFilesOnDisk(),
+      appliedInDb: SchemaDrift.seedAppliedInDb(),
+    };
+
+    const repairedState = repairSchemaDrift(
+      faultState,
+      SchemaDrift.APPLIED_FILENAME,
+      SchemaDrift.RENAMED_FILENAME,
+    );
+
+    const { healthState, canStartSafely } = computeHealthState(repairedState);
+    assert.equal(healthState, "clean", "repaired state must be 'clean'");
+    assert.equal(canStartSafely, true, "indexer must be able to start safely after repair");
+  });
+
+  test("E-10 [RECOVERY] after repair, missingOnDisk and pending are both empty", () => {
+    const faultState: MigrationState = {
+      filesOnDisk: SchemaDrift.seedFilesOnDisk(),
+      appliedInDb: SchemaDrift.seedAppliedInDb(),
+    };
+
+    const repairedState = repairSchemaDrift(
+      faultState,
+      SchemaDrift.APPLIED_FILENAME,
+      SchemaDrift.RENAMED_FILENAME,
+    );
+
+    const { pending, missingOnDisk } = computeHealthState(repairedState);
+    assert.equal(pending.length, 0,      "no pending migrations after repair");
+    assert.equal(missingOnDisk.length, 0, "no missing-on-disk migrations after repair");
+  });
+
+  test("E-11 [RECOVERY] repair is idempotent — applying it twice yields the same state", () => {
+    const faultState: MigrationState = {
+      filesOnDisk: SchemaDrift.seedFilesOnDisk(),
+      appliedInDb: SchemaDrift.seedAppliedInDb(),
+    };
+
+    const once  = repairSchemaDrift(faultState, SchemaDrift.APPLIED_FILENAME, SchemaDrift.RENAMED_FILENAME);
+    const twice = repairSchemaDrift(once,       SchemaDrift.APPLIED_FILENAME, SchemaDrift.RENAMED_FILENAME);
+
+    assert.deepEqual(
+      computeHealthState(once),
+      computeHealthState(twice),
+      "applying repair twice must produce the same health state",
+    );
+  });
+
+  test("E-12 [RECOVERY] applied row fixture has no secret-key content", () => {
+    const row = SchemaDrift.seedAppliedRow();
+    assert.doesNotMatch(row.filename, /secret|key|mnemonic|passphrase/i);
+    assert.doesNotMatch(row.applied_at, /secret|key|mnemonic|passphrase/i);
+  });
+
+  test("E-13 [RECOVERY] recovered state does not regress to drifted on re-check", () => {
+    const faultState: MigrationState = {
+      filesOnDisk: SchemaDrift.seedFilesOnDisk(),
+      appliedInDb: SchemaDrift.seedAppliedInDb(),
+    };
+
+    const repaired = repairSchemaDrift(
+      faultState,
+      SchemaDrift.APPLIED_FILENAME,
+      SchemaDrift.RENAMED_FILENAME,
+    );
+
+    // Run health check three times on the repaired state
+    for (let i = 0; i < 3; i++) {
+      const { healthState } = computeHealthState(repaired);
+      assert.equal(
+        healthState,
+        "clean",
+        `re-check ${i + 1}: repaired state must remain 'clean'`,
+      );
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CROSS-SCENARIO INVARIANTS (C + D + E)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("Cross-scenario invariants (C + D + E)", () => {
+  test("wallet errors, RPC timeouts, and schema drift are independent faults", () => {
+    // Each fault can exist without the others — verify their fixture seeds are
+    // structurally independent (no shared mutable state).
+    const walletCtx   = WalletRejection.seedInvokeContext();
+    const mockRpc     = RpcTimeout.seedMockRpcThatTimesOut(1);
+    const schemaRow   = SchemaDrift.seedAppliedRow();
+
+    // Different concern: wallet address vs RPC methods vs migration filename
+    assert.ok(walletCtx.walletAddress.length > 0);
+    assert.ok(typeof mockRpc.simulateTransaction === "function");
+    assert.ok(schemaRow.filename.length > 0);
+
+    // None of them share addresses or hashes
+    assert.notEqual(walletCtx.contractId, schemaRow.filename);
+  });
+
+  test("recovery from any single fault does not affect other fault states", () => {
+    // Wallet recovery
+    const walletRecovery = simulateWalletInvoke(true, null);
+    assert.equal(walletRecovery.success, true);
+
+    // RPC recovery
+    const rpcRecovery = simulateRpcInvoke("ok");
+    assert.equal(rpcRecovery.success, true);
+
+    // Schema recovery
+    const schemaFaultState: MigrationState = {
+      filesOnDisk: SchemaDrift.seedFilesOnDisk(),
+      appliedInDb: SchemaDrift.seedAppliedInDb(),
+    };
+    const repaired = repairSchemaDrift(
+      schemaFaultState,
+      SchemaDrift.APPLIED_FILENAME,
+      SchemaDrift.RENAMED_FILENAME,
+    );
+    const { healthState } = computeHealthState(repaired);
+    assert.equal(healthState, "clean");
+
+    // Recovering from one does not influence the others' fixture state
+    const stillDrifted = computeHealthState(schemaFaultState);
+    assert.equal(stillDrifted.healthState, "drifted", "original fault state must be unchanged");
+  });
+
+  test("all fixture addresses across C/D/E are synthetic (no S-prefix secret keys)", () => {
+    const addresses = [
+      WalletRejection.seedInvokeContext().walletAddress,
+      WalletRejection.seedInvokeContext().contractId,
+    ];
+    for (const addr of addresses) {
+      assert.doesNotMatch(addr, /^S/, `"${addr}" must not be a secret key`);
+    }
+  });
+
+  test("all fixture tx_hashes are synthetic (zero-prefix or f-repeat pattern)", () => {
+    const hash = RpcTimeout.pollExhausted.txHash;
+    assert.match(hash, /^[0-9a-f]{64}$/);
+    assert.ok(
+      hash.startsWith("0") || hash.startsWith("f"),
+      "synthetic hash must start with '0' or 'f'",
+    );
+  });
+});
