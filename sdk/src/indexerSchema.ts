@@ -289,6 +289,43 @@ export const INDEXER_RESPONSE_SCHEMAS = {
       circlesByStatus: rec(int()),
     }),
   },
+  /** GET /members/:member/circles */
+  memberCircles: {
+    circles: arr(
+      obj({
+        circle: obj(CIRCLE_ROW),
+        member: obj({
+          payout_order:        int(),
+          join_order:          int({ nullable: true }),
+          collateral:          stroops(),
+          defaults:            int(),
+          joined_at:           ts({ nullable: true }),
+          reputation_score:    int({ nullable: true }),
+          total_contributions: int(),
+        }),
+      }),
+    ),
+    pagination: PAGINATION,
+  },
+  /** GET /circles/:address/activity */
+  circleActivity: {
+    circle_address: str(),
+    events: arr(
+      obj({
+        type:           str(),
+        actor:          str(),
+        round:          int(),
+        amount:         stroops({ nullable: true }),
+        penalty:        stroops({ nullable: true }),
+        tx_hash:        str(),
+        ledger:         big(),
+        event_position: int(),
+        id:             str(),
+        timestamp:      ts({ nullable: true }),
+      }),
+    ),
+    pagination: PAGINATION,
+  },
 } satisfies Record<string, IndexerObjectSchema>;
 
 /** Identifier of a schema in {@link INDEXER_RESPONSE_SCHEMAS}. */
