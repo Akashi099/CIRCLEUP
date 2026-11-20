@@ -310,6 +310,13 @@ const ttDriftedSchema = {
   canStartSafely: false,
 };
 
+const ttUninitializedSchema = {
+  state: "uninitialized" as const,
+  status: { applied: [], pending: ["001.sql"], missingOnDisk: [], modified: [], currentVersion: null },
+  summary: "Database has not been initialized with migrations.",
+  canStartSafely: false,
+};
+
 interface TruthTableCase {
   name: string;
   dbFails: boolean;
@@ -579,5 +586,110 @@ test("HealthReport shape: all required top-level fields are present", async () =
   assert.ok("lagLedgers" in report.diagnostics);
   assert.ok(typeof report.diagnostics.dbAvailable === "boolean");
   assert.ok(typeof report.diagnostics.rpcAvailable === "boolean");
+
+  // Liveness & Readiness sub-reports (#934)
+  assert.ok(report.liveness, "liveness must be present");
+  assert.equal(report.liveness.live, true, "liveness.live must be true for healthy service");
+  assert.ok(report.readiness, "readiness must be present");
+  assert.equal(report.readiness.ready, true, "readiness.ready must be true for healthy service");
   (poolModule as any).query = originalQuery;
+});
+
+// ── Liveness and Readiness Probes (#934) ──────────────────────────────────────
+
+test("checkLiveness: reports alive during normal operation", async () => {
+  const { checkLiveness } = await import("./health");
+  const result = checkLiveness(false);
+  assert.equal(result.status, "ok");
+  assert.equal(result.live, true);
+  assert.equal(result.probe, "liveness");
+  assert.ok(typeof result.uptimeSeconds === "number");
+});
+
+test("checkLiveness: reports error when process is shutting down", async () => {
+  const { checkLiveness } = await import("./health");
+  const result = checkLiveness(true);
+  assert.equal(result.status, "error");
+  assert.equal(result.live, false);
+  assert.equal(result.reason, "indexer process is shutting down");
+});
+
+test("checkReadiness: reports ready (HTTP 200) when DB is reachable and schema is clean", async () => {
+  const poolModule = await import("./db/pool");
+  const originalQuery = poolModule.query;
+  (poolModule as any).query = async () => [{ "?column?": 1 }];
+
+  const { checkReadiness } = await import("./health");
+  const rpc = makeRpc({ getLatestLedger: async () => ({ sequence: 100 }) });
+  const result = await checkReadiness({ rpc, cachedMigrationHealth: ttCleanSchema });
+
+  assert.equal(result.status, "ok");
+  assert.equal(result.ready, true);
+  assert.equal(result.probe, "readiness");
+  assert.equal(result.degradedDependencies.length, 0);
+  (poolModule as any).query = originalQuery;
+});
+
+test("checkReadiness: reports not ready (HTTP 503) when DB connectivity errors", async () => {
+  const poolModule = await import("./db/pool");
+  const originalQuery = poolModule.query;
+  (poolModule as any).query = async () => { throw new Error("ECONNREFUSED"); };
+
+  const { checkReadiness } = await import("./health");
+  const rpc = makeRpc({ getLatestLedger: async () => ({ sequence: 100 }) });
+  const result = await checkReadiness({ rpc, cachedMigrationHealth: ttCleanSchema });
+
+  assert.equal(result.status, "error");
+  assert.equal(result.ready, false);
+  assert.equal(result.dbStatus, "error");
+  assert.ok(result.reason?.includes("database unavailable"));
+  (poolModule as any).query = originalQuery;
+});
+
+test("checkReadiness: reports not ready (HTTP 503) when schema is drifted or uninitialized", async () => {
+  const poolModule = await import("./db/pool");
+  const originalQuery = poolModule.query;
+  (poolModule as any).query = async () => [{ "?column?": 1 }];
+
+  const { checkReadiness } = await import("./health");
+  const rpc = makeRpc({ getLatestLedger: async () => ({ sequence: 100 }) });
+  const driftedResult = await checkReadiness({ rpc, cachedMigrationHealth: ttDriftedSchema });
+
+  assert.equal(driftedResult.status, "error");
+  assert.equal(driftedResult.ready, false);
+  assert.ok(driftedResult.reason?.includes("unsafe schema state"));
+
+  const uninitializedResult = await checkReadiness({ rpc, cachedMigrationHealth: ttUninitializedSchema });
+  assert.equal(uninitializedResult.status, "error");
+  assert.equal(uninitializedResult.ready, false);
+  (poolModule as any).query = originalQuery;
+});
+
+test("checkReadiness: reports ready: true, status: degraded (HTTP 200) when RPC is down (avoids restart loop)", async () => {
+  const poolModule = await import("./db/pool");
+  const originalQuery = poolModule.query;
+  (poolModule as any).query = async () => [{ "?column?": 1 }];
+
+  const { checkReadiness } = await import("./health");
+  const rpc = makeRpc({
+    getLatestLedger: async () => { throw new Error("RPC network timeout"); },
+  });
+  const result = await checkReadiness({ rpc, cachedMigrationHealth: ttCleanSchema });
+
+  // Crucial invariant for Issue 98:
+  // RPC outage does NOT fail readiness (avoids container restart loop) because
+  // the indexer API can safely serve historical and indexed data from Postgres.
+  assert.equal(result.status, "degraded");
+  assert.equal(result.ready, true, "ready must remain true to avoid restart loop on RPC outage");
+  assert.equal(result.rpcStatus, "error");
+  assert.deepEqual(result.degradedDependencies, ["rpc"]);
+  (poolModule as any).query = originalQuery;
+});
+
+test("checkReadiness: reports not ready (HTTP 503) when indexer is shutting down", async () => {
+  const { checkReadiness } = await import("./health");
+  const result = await checkReadiness({ isShuttingDown: true });
+  assert.equal(result.status, "error");
+  assert.equal(result.ready, false);
+  assert.equal(result.reason, "indexer process is shutting down");
 });

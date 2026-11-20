@@ -338,3 +338,92 @@ describe("Shutdown phase tracking", () => {
     assert.equal(order[order.length - 1], "complete");
   });
 });
+
+// ─── PostgreSQL Pool Shutdown (#935) ──────────────────────────────────────────
+
+describe("PostgreSQL pool shutdown (#935)", () => {
+  test("closePool calls pool.end() and resolves cleanly", async () => {
+    const { closePool } = await import("./db/pool");
+    let endCalled = false;
+    const fakePool = {
+      ended: false,
+      end: async () => {
+        endCalled = true;
+      },
+    };
+
+    await closePool({ pool: fakePool as any });
+    assert.equal(endCalled, true, "pool.end() must be called");
+  });
+
+  test("closePool is idempotent on already-ended pool", async () => {
+    const { closePool } = await import("./db/pool");
+    let callCount = 0;
+    const fakePool = {
+      ended: true,
+      end: async () => {
+        callCount++;
+      },
+    };
+
+    await closePool({ pool: fakePool as any });
+    await closePool({ pool: fakePool as any });
+    assert.equal(callCount, 0, "pool.end() must not be called when ended is true");
+  });
+
+  test("closePool does not swallow pool.end() failures", async () => {
+    const { closePool } = await import("./db/pool");
+    const testError = new Error("db teardown connection failure");
+    const fakePool = {
+      ended: false,
+      end: async () => {
+        throw testError;
+      },
+    };
+
+    await assert.rejects(
+      () => closePool({ pool: fakePool as any }),
+      (err: any) => err === testError || err.message === testError.message,
+      "pool close error must remain observable to callers",
+    );
+  });
+
+  test("closePool respects timeoutMs option when pool.end hangs", async () => {
+    const { closePool } = await import("./db/pool");
+    const fakePool = {
+      ended: false,
+      end: () => new Promise<void>(() => {}), // hangs indefinitely
+    };
+
+    await assert.rejects(
+      () => closePool({ pool: fakePool as any, timeoutMs: 50 }),
+      /Pool shutdown timed out after 50ms/,
+    );
+  });
+
+  test("withPoolCleanup executes operation and ensures pool shutdown", async () => {
+    const { withPoolCleanup, closePool } = await import("./db/pool");
+    let executed = false;
+
+    const result = await withPoolCleanup(async () => {
+      executed = true;
+      return "success-value";
+    });
+
+    assert.equal(executed, true);
+    assert.equal(result, "success-value");
+  });
+
+  test("withPoolCleanup executes cleanup even when operation throws", async () => {
+    const { withPoolCleanup } = await import("./db/pool");
+    const thrownErr = new Error("one-shot operation failed");
+
+    await assert.rejects(
+      () => withPoolCleanup(async () => {
+        throw thrownErr;
+      }),
+      (err: any) => err === thrownErr || err.message === thrownErr.message,
+      "original error must propagate without being swallowed",
+    );
+  });
+});

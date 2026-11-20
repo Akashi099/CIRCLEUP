@@ -67,7 +67,7 @@ mod financial_invariant_tests {
         member_count: usize,
         round_amount: i128,
         deadline: u32,
-    ) -> FinancialSetup {
+    ) -> FinancialSetup<'static> {
         let env = Env::default();
         env.mock_all_auths();
 
@@ -80,13 +80,14 @@ mod financial_invariant_tests {
         let rep_reg = env.register_contract(None, ReputationContract);
         let rep_id = rep_reg.clone();
         let rep_client = ReputationContractClient::new(&env, &rep_id);
-        rep_client.initialize(&Address::generate(&env));
+        let rep_admin = Address::generate(&env);
+        rep_client.initialize(&rep_admin);
 
         let circle_reg = env.register_contract(None, CircleContract);
         let circle_id = circle_reg.clone();
         let circle = CircleContractClient::new(&env, &circle_id);
 
-        rep_client.add_authorized_caller(&Address::generate(&env), &circle_id);
+        rep_client.add_authorized_caller(&rep_admin, &circle_id);
 
         let mut members = Vec::with_capacity(member_count);
         let mut sdk_members = SdkVec::new(&env);
@@ -145,15 +146,14 @@ mod financial_invariant_tests {
 
     fn complete_round(setup: &FinancialSetup) -> bool {
         contribute_all(setup);
-        setup.circle.payout().is_ok()
+        setup.circle.try_payout().is_ok()
     }
 
     fn advance_past_deadline(setup: &FinancialSetup) {
-        if let Ok(round) = setup.circle.get_current_round() {
-            setup.env.ledger().with_mut(|l| {
-                l.sequence_number = round.deadline_ledger as u32 + 1;
-            });
-        }
+        let round = setup.circle.get_current_round();
+        setup.env.ledger().with_mut(|l| {
+            l.sequence_number = round.deadline_ledger as u32 + 1;
+        });
     }
 
     // ── Invariant Tests ─────────────────────────────────────────────────────
@@ -557,6 +557,81 @@ mod financial_invariant_tests {
                 final_total, total_initial
             );
         }
+
+        // ── FI-5: Collateral accounting under partial defaults and closure ─
+        //
+        // Proves that across arbitrary multi-round default patterns, the
+        // independent integer-stroop accounting model exactly matches contract
+        // collateral getters, default counters, and token balances; closure
+        // releases remaining collateral; and repeated closes are rejected.
+
+        #[test]
+        fn prop_collateral_accounting_under_partial_defaults_and_closure(
+            member_count in 2usize..=4usize,
+            round_amount in 100_000i128..=10_000_000i128,
+            skip_mask in 1u32..16u32,
+        ) {
+            let setup = make_financial_setup(member_count, round_amount, 100);
+            let mut model = CircleAccountingModel::new(&setup.initial_balances[..member_count], round_amount);
+            join_all(&setup);
+
+            for round_idx in 0..member_count {
+                let recipient_idx = round_idx;
+                let mut contributed_count = 0u32;
+                for m_idx in 0..member_count {
+                    let bit = (skip_mask >> ((round_idx * member_count + m_idx) % 4)) & 1;
+                    // Member 0 never defaults to test non-defaulting participant alongside defaulting ones
+                    let should_contribute = bit == 0 || m_idx == 0;
+                    if should_contribute {
+                        setup.circle.contribute(&setup.members[m_idx]);
+                        model.record_contribution(m_idx);
+                        contributed_count += 1;
+                    }
+                }
+
+                advance_past_deadline(&setup);
+
+                if contributed_count == member_count as u32 {
+                    setup.circle.payout();
+                } else {
+                    for m_idx in 0..member_count {
+                        let bit = (skip_mask >> ((round_idx * member_count + m_idx) % 4)) & 1;
+                        let should_contribute = bit == 0 || m_idx == 0;
+                        if !should_contribute {
+                            model.record_default(m_idx);
+                        }
+                    }
+                    setup.circle.settle_round();
+                }
+                model.record_payout(recipient_idx, contributed_count);
+
+                model.assert_invariants();
+                for (i, m) in setup.members.iter().enumerate() {
+                    prop_assert_eq!(setup.circle.get_collateral(m), model.members[i].current_collateral);
+                    prop_assert_eq!(setup.circle.get_defaults(m), model.members[i].defaults_count);
+                    prop_assert_eq!(setup.token.balance(m), model.expected_member_balance(i));
+                }
+            }
+
+            prop_assert_eq!(setup.circle.get_status(), CircleStatus::Completed);
+            setup.circle.close(&setup.members[0]);
+            let total_released = model.record_close();
+
+            prop_assert_eq!(
+                total_released,
+                model.total_expected_collateral() - model.total_penalties()
+            );
+
+            for (i, m) in setup.members.iter().enumerate() {
+                prop_assert_eq!(setup.circle.get_collateral(m), 0);
+                prop_assert_eq!(setup.token.balance(m), model.expected_member_balance(i));
+            }
+
+            prop_assert_eq!(setup.token.balance(&setup.circle_id), model.total_penalties());
+
+            // Repeated close must fail
+            prop_assert!(setup.circle.try_close(&setup.members[0]).is_err());
+        }
     }
 
     // ── Regression Fixtures ─────────────────────────────────────────────────
@@ -657,5 +732,329 @@ mod financial_invariant_tests {
                 i, balances_before[i], balance_after
             );
         }
+    }
+
+    // ── Issue 58: Collateral Accounting Under Partial Defaults and Closure ─────
+    //
+    // Proves that across multiple rounds with complex partial default and
+    // contribution patterns, terminal closure releases exactly the remaining
+    // collateral, token conservation holds, and repeated mutations cannot alter
+    // final accounting sums.
+
+    #[derive(Clone, Debug)]
+    pub struct MemberAccounting {
+        pub initial_balance: i128,
+        pub initial_collateral: i128,
+        pub current_collateral: i128,
+        pub penalties_total: i128,
+        pub defaults_count: u32,
+        pub contributions_total: i128,
+        pub payouts_total: i128,
+        pub released_collateral: i128,
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct CircleAccountingModel {
+        pub members: Vec<MemberAccounting>,
+        pub round_amount: i128,
+        pub member_count: usize,
+        pub is_closed: bool,
+    }
+
+    impl CircleAccountingModel {
+        pub fn new(initial_balances: &[i128], round_amount: i128) -> Self {
+            let initial_collateral = round_amount
+                .checked_mul(COLLATERAL_MULTIPLIER as i128)
+                .expect("collateral overflow in model");
+            let members = initial_balances
+                .iter()
+                .map(|&bal| MemberAccounting {
+                    initial_balance: bal,
+                    initial_collateral,
+                    current_collateral: initial_collateral,
+                    penalties_total: 0,
+                    defaults_count: 0,
+                    contributions_total: 0,
+                    payouts_total: 0,
+                    released_collateral: 0,
+                })
+                .collect();
+
+            CircleAccountingModel {
+                members,
+                round_amount,
+                member_count: initial_balances.len(),
+                is_closed: false,
+            }
+        }
+
+        pub fn record_contribution(&mut self, member_idx: usize) {
+            self.members[member_idx].contributions_total += self.round_amount;
+        }
+
+        pub fn record_default(&mut self, member_idx: usize) {
+            let m = &mut self.members[member_idx];
+            let penalty = m
+                .current_collateral
+                .checked_mul(PENALTY_BPS)
+                .expect("penalty overflow in model")
+                / BPS_DENOM;
+            m.current_collateral -= penalty;
+            m.penalties_total += penalty;
+            m.defaults_count += 1;
+        }
+
+        pub fn record_payout(&mut self, recipient_idx: usize, contributed_count: u32) {
+            let pot = self
+                .round_amount
+                .checked_mul(contributed_count as i128)
+                .expect("pot overflow in model");
+            self.members[recipient_idx].payouts_total += pot;
+        }
+
+        pub fn record_close(&mut self) -> i128 {
+            assert!(!self.is_closed, "Model cannot close more than once");
+            self.is_closed = true;
+            let mut total_released = 0i128;
+            for m in &mut self.members {
+                m.released_collateral = m.current_collateral;
+                total_released += m.released_collateral;
+                m.current_collateral = 0;
+            }
+            total_released
+        }
+
+        pub fn expected_member_balance(&self, member_idx: usize) -> i128 {
+            let m = &self.members[member_idx];
+            if self.is_closed {
+                m.initial_balance
+                    - m.initial_collateral
+                    - m.contributions_total
+                    + m.payouts_total
+                    + m.released_collateral
+            } else {
+                m.initial_balance
+                    - m.initial_collateral
+                    - m.contributions_total
+                    + m.payouts_total
+            }
+        }
+
+        pub fn total_expected_collateral(&self) -> i128 {
+            self.round_amount * (COLLATERAL_MULTIPLIER as i128) * (self.member_count as i128)
+        }
+
+        pub fn total_penalties(&self) -> i128 {
+            self.members.iter().map(|m| m.penalties_total).sum()
+        }
+
+        pub fn total_remaining_collateral(&self) -> i128 {
+            self.members.iter().map(|m| m.current_collateral).sum()
+        }
+
+        pub fn assert_invariants(&self) {
+            for (i, m) in self.members.iter().enumerate() {
+                assert!(
+                    m.current_collateral >= 0,
+                    "Member {} current collateral must be non-negative: {}",
+                    i, m.current_collateral
+                );
+                assert!(
+                    m.penalties_total >= 0,
+                    "Member {} penalties must be non-negative: {}",
+                    i, m.penalties_total
+                );
+                assert!(
+                    m.released_collateral >= 0,
+                    "Member {} released collateral must be non-negative: {}",
+                    i, m.released_collateral
+                );
+
+                // Identity: initial_collateral == current_collateral + penalties_total + released_collateral
+                assert_eq!(
+                    m.initial_collateral,
+                    m.current_collateral + m.penalties_total + m.released_collateral,
+                    "Member {} collateral identity violated: initial {} != current {} + penalties {} + released {}",
+                    i, m.initial_collateral, m.current_collateral, m.penalties_total, m.released_collateral
+                );
+            }
+
+            let total_initial = self.total_expected_collateral();
+            let total_current: i128 = self.members.iter().map(|m| m.current_collateral).sum();
+            let total_penalties: i128 = self.members.iter().map(|m| m.penalties_total).sum();
+            let total_released: i128 = self.members.iter().map(|m| m.released_collateral).sum();
+
+            assert_eq!(
+                total_initial,
+                total_current + total_penalties + total_released,
+                "Global collateral conservation violated: {} != current {} + penalties {} + released {}",
+                total_initial, total_current, total_penalties, total_released
+            );
+        }
+    }
+
+    #[test]
+    fn test_table_driven_collateral_accounting_partial_defaults_and_final_closure() {
+        // 4 members, 5 USDC round amount (50_000_000 stroops), 100 ledgers deadline
+        const MEMBER_COUNT: usize = 4;
+        const ROUND_AMOUNT: i128 = 50_000_000;
+        const DEADLINE: u32 = 100;
+
+        let setup = make_financial_setup(MEMBER_COUNT, ROUND_AMOUNT, DEADLINE);
+        let mut model = CircleAccountingModel::new(&setup.initial_balances[..MEMBER_COUNT], ROUND_AMOUNT);
+
+        // Members join the circle and lock initial collateral
+        join_all(&setup);
+        assert_eq!(setup.circle.get_status(), CircleStatus::Active);
+
+        // Verify initial locked collateral against model
+        for (i, m) in setup.members.iter().enumerate() {
+            assert_eq!(setup.circle.get_collateral(m), model.members[i].current_collateral);
+            assert_eq!(setup.circle.get_defaults(m), 0);
+            assert_eq!(setup.token.balance(m), model.expected_member_balance(i));
+        }
+        model.assert_invariants();
+
+        // Distinct round contribution and default matrix:
+        // Round 0 (recipient 0): Member 0, 2, 3 contribute; Member 1 DEFAULTS (first time)
+        // Round 1 (recipient 1): Member 0, 3 contribute; Member 1 DEFAULTS (second time); Member 2 DEFAULTS (first time)
+        // Round 2 (recipient 2): Member 0, 1, 2 contribute; Member 3 DEFAULTS (first time); Member 1 contributes
+        // Round 3 (recipient 3): Member 0, 2, 3 contribute; Member 1 DEFAULTS (third time)
+        //
+        // Note:
+        // Member 0: NEVER defaults (contributes all 4 rounds)
+        // Member 1: Defaults REPEATEDLY (Rounds 0, 1, 3)
+        // Member 2: Defaults ONCE (Round 1)
+        // Member 3: Defaults ONCE (Round 2)
+        let round_contributions: [[bool; MEMBER_COUNT]; 4] = [
+            [true, false, true, true],   // Round 0
+            [true, false, false, true],  // Round 1
+            [true, true, true, false],   // Round 2
+            [true, false, true, true],   // Round 3
+        ];
+
+        for round_idx in 0..4 {
+            let recipient_idx = round_idx;
+            let contribs = round_contributions[round_idx];
+
+            let mut contributed_count = 0u32;
+            for (m_idx, &did_contribute) in contribs.iter().enumerate() {
+                if did_contribute {
+                    setup.circle.contribute(&setup.members[m_idx]);
+                    model.record_contribution(m_idx);
+                    contributed_count += 1;
+                }
+            }
+
+            advance_past_deadline(&setup);
+
+            if contributed_count == MEMBER_COUNT as u32 {
+                setup.circle.payout();
+            } else {
+                // Record defaults in model for non-contributors
+                for (m_idx, &did_contribute) in contribs.iter().enumerate() {
+                    if !did_contribute {
+                        model.record_default(m_idx);
+                    }
+                }
+                setup.circle.settle_round();
+            }
+            model.record_payout(recipient_idx, contributed_count);
+
+            // Verify state after round transition
+            model.assert_invariants();
+            for (i, m) in setup.members.iter().enumerate() {
+                assert_eq!(
+                    setup.circle.get_collateral(m),
+                    model.members[i].current_collateral,
+                    "Round {} Member {} collateral mismatch",
+                    round_idx, i
+                );
+                assert_eq!(
+                    setup.circle.get_defaults(m),
+                    model.members[i].defaults_count,
+                    "Round {} Member {} defaults count mismatch",
+                    round_idx, i
+                );
+                assert_eq!(
+                    setup.token.balance(m),
+                    model.expected_member_balance(i),
+                    "Round {} Member {} token balance mismatch",
+                    round_idx, i
+                );
+            }
+        }
+
+        // After 4 rounds, circle status must be Completed
+        assert_eq!(setup.circle.get_status(), CircleStatus::Completed);
+
+        // Pre-close verification:
+        // Contract token balance must equal total remaining collateral + total forfeited penalties
+        let expected_pre_close_contract_balance = model.total_remaining_collateral() + model.total_penalties();
+        assert_eq!(
+            setup.token.balance(&setup.circle_id),
+            expected_pre_close_contract_balance,
+            "Contract token balance before close must equal stored collateral plus penalties"
+        );
+
+        // Close the circle to release remaining collateral
+        setup.circle.close(&setup.members[0]);
+        let total_released = model.record_close();
+
+        // Acceptance criteria checks after closure:
+        // 1. Total released equals remaining collateral
+        assert_eq!(
+            total_released,
+            model.total_expected_collateral() - model.total_penalties(),
+            "Total released must equal initial collateral minus forfeited penalties"
+        );
+
+        // 2. All member collateral getters are zeroed
+        for (i, m) in setup.members.iter().enumerate() {
+            assert_eq!(
+                setup.circle.get_collateral(m),
+                0,
+                "Member {} collateral must be 0 after close",
+                i
+            );
+            assert_eq!(
+                setup.token.balance(m),
+                model.expected_member_balance(i),
+                "Member {} final token balance must match model exactly",
+                i
+            );
+        }
+
+        // 3. Contract balance holds exactly the forfeited penalties
+        assert_eq!(
+            setup.token.balance(&setup.circle_id),
+            model.total_penalties(),
+            "Contract balance after close must strictly equal forfeited penalties"
+        );
+
+        // 4. Repeated close attempts cannot change the final sum or succeed
+        let member_balances_snapshot: Vec<i128> = setup
+            .members
+            .iter()
+            .map(|m| setup.token.balance(m))
+            .collect();
+        let contract_balance_snapshot = setup.token.balance(&setup.circle_id);
+
+        let repeat_close_1 = setup.circle.try_close(&setup.members[0]);
+        let repeat_close_2 = setup.circle.try_close(&setup.members[1]);
+        assert!(repeat_close_1.is_err(), "Repeated close attempt 1 must fail");
+        assert!(repeat_close_2.is_err(), "Repeated close attempt 2 must fail");
+
+        // 5. Repeated default or settle attempts cannot succeed after completion/close
+        let repeat_default = setup.circle.try_mark_default(&setup.members[1]);
+        let repeat_settle = setup.circle.try_settle_round();
+        assert!(repeat_default.is_err(), "Post-close mark_default must fail");
+        assert!(repeat_settle.is_err(), "Post-close settle_round must fail");
+
+        // Verify balances remain untouched after repeated attempts
+        for (i, m) in setup.members.iter().enumerate() {
+            assert_eq!(setup.token.balance(m), member_balances_snapshot[i]);
+        }
+        assert_eq!(setup.token.balance(&setup.circle_id), contract_balance_snapshot);
     }
 }

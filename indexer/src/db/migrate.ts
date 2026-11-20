@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
-import { pool } from "./pool";
+import { pool, withPoolCleanup } from "./pool";
 
 const migrationsDir = path.join(__dirname, "migrations");
 
@@ -341,7 +341,7 @@ if (require.main === module) {
     return 0;
   }
 
-  run()
+  withPoolCleanup(run)
     .then((code) => process.exit(code))
     .catch((err) => {
       console.error("[migrate] Error:", err);

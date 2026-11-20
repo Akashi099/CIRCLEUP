@@ -118,3 +118,15 @@ test("member circles endpoint returns circle and member sub-objects (#dashboard)
   assert.match(source, /reputation_score/);
   assert.match(source, /payout_order/);
 });
+
+test("liveness and readiness probe routes are mounted (#934)", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const source = fs.readFileSync(path.join(__dirname, "api.ts"), "utf8");
+  assert.match(source, /app\.get\("\/health\/live"/);
+  assert.match(source, /app\.get\("\/livez"/);
+  assert.match(source, /app\.get\("\/health\/ready"/);
+  assert.match(source, /app\.get\("\/readyz"/);
+  assert.match(source, /probe === "liveness"/);
+  assert.match(source, /probe === "readiness"/);
+});

@@ -1,4 +1,4 @@
-import { pool } from "./pool";
+import { pool, withPoolCleanup } from "./pool";
 
 /**
  * Runs EXPLAIN ANALYZE against the API's frequent query shapes so the
@@ -273,11 +273,10 @@ async function main() {
     );
     for (const note of notes) console.log(`  - ${note}`);
   }
-  await pool.end();
 }
 
 if (require.main === module) {
-  main().catch((err) => {
+  withPoolCleanup(main).catch((err) => {
     console.error("[explain] Error:", err);
     process.exit(1);
   });

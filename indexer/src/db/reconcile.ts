@@ -46,7 +46,7 @@ import {
   TransactionBuilder,
   Networks,
 } from "@stellar/stellar-sdk";
-import { query, pool } from "./pool";
+import { query, pool, withPoolCleanup } from "./pool";
 import { rpc } from "../indexer";
 import { REPUTATION_ADDRESS } from "../config";
 
@@ -637,7 +637,7 @@ export function printRepairOutcomes(outcomes: RepairOutcome[]): void {
 //   --max-repairs=<n> Cap on repairs applied in one run (default 500).
 
 if (require.main === module) {
-  (async () => {
+  withPoolCleanup(async () => {
     const args = process.argv.slice(2);
     const repair = args.includes("--repair");
     const circleArg = args.find((a) => a.startsWith("--circle="));
@@ -666,13 +666,11 @@ if (require.main === module) {
         });
         printRepairOutcomes(outcomes);
       }
-
-      await pool.end();
-      process.exit(0);
     } catch (err) {
       console.error("[reconcile] Error:", err);
-      await pool.end();
-      process.exit(1);
+      throw err;
     }
-  })();
+  })
+    .then(() => process.exit(0))
+    .catch(() => process.exit(1));
 }

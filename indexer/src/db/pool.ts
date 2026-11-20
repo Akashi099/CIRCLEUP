@@ -121,6 +121,128 @@ export function getPoolStats(): PoolStats {
 
 // ── Connection acquisition with saturation detection ─────────────────────────
 
+// ── Pool lifecycle & shutdown state ───────────────────────────────────────────
+
+let poolClosing = false;
+let poolClosed = false;
+let poolClosePromise: Promise<void> | null = null;
+
+export function isPoolClosing(): boolean {
+  return poolClosing;
+}
+
+export function isPoolClosed(): boolean {
+  return poolClosed || pool.ended;
+}
+
+/** Reset internal shutdown state flags (intended for unit tests only). */
+export function _resetPoolStateForTest(): void {
+  poolClosing = false;
+  poolClosed = false;
+  poolClosePromise = null;
+}
+
+export interface ClosePoolOptions {
+  /** Optional custom pool instance to close (defaults to shared pool). */
+  pool?: Pick<Pool, "end"> & Partial<Pick<Pool, "ended">>;
+  /** Maximum wait time in milliseconds for in-flight queries to release. */
+  timeoutMs?: number;
+  /** Optional AbortSignal to interrupt waiting for pool draining. */
+  signal?: AbortSignal;
+}
+
+/**
+ * Cleanly releases all PostgreSQL connections in the shared pool.
+ *
+ * Requirements (#935):
+ *  1. Coordinated lifecycle: establish a single owner for pool shutdown and
+ *     prevent multiple concurrent teardown attempts from racing (idempotent).
+ *  2. Safe repeat cleanup: if already closed, resolves immediately without error.
+ *  3. In-flight transactions: pg's pool.end() awaits active clients being checked
+ *     back in. Optional timeoutMs or signal bounds this grace period.
+ *  4. Observable errors: failures during pool.end() are never silently swallowed.
+ *  5. Immediate rejection of new work: once shutdown begins, acquireClient refuses
+ *     new checkouts.
+ */
+export async function closePool(options: ClosePoolOptions = {}): Promise<void> {
+  const targetPool = options.pool ?? pool;
+  const isDefaultPool = targetPool === pool;
+
+  if (isDefaultPool) {
+    if (poolClosed || pool.ended) {
+      poolClosed = true;
+      return;
+    }
+    if (poolClosePromise) {
+      return poolClosePromise;
+    }
+    poolClosing = true;
+  } else if (targetPool.ended) {
+    return;
+  }
+
+  const executionPromise = (async () => {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const endPromise = targetPool.end();
+
+      if (options.timeoutMs && options.timeoutMs > 0) {
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error(`[db] Pool shutdown timed out after ${options.timeoutMs}ms`));
+          }, options.timeoutMs);
+          timer.unref?.();
+        });
+        await Promise.race([endPromise, timeoutPromise]);
+      } else if (options.signal) {
+        if (options.signal.aborted) {
+          throw options.signal.reason ?? new Error("[db] Pool shutdown aborted");
+        }
+        const abortPromise = new Promise<never>((_, reject) => {
+          options.signal?.addEventListener(
+            "abort",
+            () => reject(options.signal?.reason ?? new Error("[db] Pool shutdown aborted")),
+            { once: true },
+          );
+        });
+        await Promise.race([endPromise, abortPromise]);
+      } else {
+        await endPromise;
+      }
+
+      if (isDefaultPool) {
+        poolClosed = true;
+      }
+    } catch (err) {
+      if (isDefaultPool && !pool.ended) {
+        poolClosing = false;
+        poolClosePromise = null;
+      }
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  })();
+
+  if (isDefaultPool) {
+    poolClosePromise = executionPromise;
+  }
+
+  return executionPromise;
+}
+
+/**
+ * Execute a one-shot command or procedure and guarantee the shared database
+ * pool is closed when it finishes, whether on successful return or thrown error.
+ */
+export async function withPoolCleanup<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } finally {
+    await closePool();
+  }
+}
+
 /**
  * Acquire a PoolClient, converting pg's generic connection-timeout error into
  * a typed PoolSaturationError so callers and the health check can distinguish
@@ -132,6 +254,9 @@ export function getPoolStats(): PoolStats {
  * not export a typed error for it.
  */
 async function acquireClient(): Promise<PoolClient> {
+  if (isPoolClosing() || isPoolClosed()) {
+    throw new Error("[db] Cannot acquire connection: database pool is closed or shutting down");
+  }
   try {
     const client = await pool.connect();
     return client;
