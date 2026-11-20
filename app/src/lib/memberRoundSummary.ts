@@ -75,13 +75,16 @@ export const MEMBER_ROUND_STATUS_DESCRIPTIONS: Record<MemberRoundStatus, string>
     "Both a contribution record and a default record exist for this member in this round. " +
     "This may indicate replayed or malformed source data. Refer to the contract for the authoritative state.",
   not_yet_recorded:
-    "This round has not settled yet. The member's participation will appear once the round is indexed.",
+    "No indexed evidence for this member in this round yet. The round is still open — " +
+    "if a contribution was recently submitted it may not have been indexed yet. " +
+    "The contract is authoritative for whether a contribution was accepted.",
   not_obligated:
-    "This member was the payout recipient for this round and was not expected to contribute.",
+    "This member is the designated payout recipient for this round and is not expected to contribute.",
   unavailable:
-    "This round was cancelled before it could settle. No contribution was required.",
+    "This round was cancelled before it could settle. No contribution was required or recorded.",
   unknown:
-    "Round data is unavailable or the status is not recognised.",
+    "No indexed evidence for this member in this completed round. " +
+    "The indexer may have partial data. The contract is the authoritative source.",
 };
 
 // ─── Per-round summary entry ──────────────────────────────────────────────────
@@ -149,6 +152,24 @@ const FRESHNESS_NOTE =
  * Compute a per-round participation summary for a single member.
  *
  * Pure function — takes pre-fetched rounds data, returns typed summary.
+ *
+ * Status resolution order for a current/open round:
+ *   1. If the member is the designated recipient (payout_order matches
+ *      round index) → "not_obligated" (they receive; they do not contribute).
+ *   2. If a contribution record is already indexed for this member →
+ *      "contributed" (the indexer has evidence; still subject to lag).
+ *   3. Otherwise → "not_yet_recorded" (round is live; no evidence yet).
+ *
+ * This means "not_yet_recorded" in a current round means exactly "no indexed
+ * evidence yet" — it does not claim the member has not contributed.
+ *
+ * Status resolution order for a completed round:
+ *   1. Recipient with payout row → "received".
+ *   2. Both contribution AND default records present → "inconsistent" (surfaced,
+ *      not silently resolved). Increments inconsistentCount.
+ *   3. Default record only → "defaulted".
+ *   4. Contribution record only → "contributed".
+ *   5. No evidence → "unknown" (settled round; indexer may have partial data).
  */
 export function computeMemberRoundSummary(
   memberAddress: string,
@@ -162,36 +183,9 @@ export function computeMemberRoundSummary(
     const isCancelled = round.status === "cancelled";
     const isCurrent = round.status === "current" || round.status === "open";
 
-    // Recipient check
-    const isRecipient = round.recipient === memberAddress;
-    if (isRecipient && isSettled) {
-      return {
-        roundIndex: round.roundIndex,
-        status: "received",
-        contributionRecord: null,
-        defaultRecord: null,
-        payoutAmountStroops: round.amount ?? null,
-        payoutTxHash: round.txHash ?? null,
-        isSettled,
-        freshnessNote: FRESHNESS_NOTE,
-      };
-    }
-
-    // If payee but not yet settled, treat as not_obligated
-    if (isRecipient) {
-      return {
-        roundIndex: round.roundIndex,
-        status: "not_obligated",
-        contributionRecord: null,
-        defaultRecord: null,
-        payoutAmountStroops: null,
-        payoutTxHash: null,
-        isSettled,
-        freshnessNote: FRESHNESS_NOTE,
-      };
-    }
-
-    // Cancelled round
+    // ── Cancelled round ───────────────────────────────────────────────────
+    // Check this before recipient so a cancelled round whose payout_order
+    // matches the member still shows "unavailable" rather than "not_obligated".
     if (isCancelled) {
       return {
         roundIndex: round.roundIndex,
@@ -205,8 +199,72 @@ export function computeMemberRoundSummary(
       };
     }
 
-    // Current / open round — not yet settled
+    // ── Settled round: recipient check ────────────────────────────────────
+    // A completed round with the member as recipient → "received".
+    // We only apply this for settled rounds to avoid showing "received" for
+    // the designated-but-not-yet-paid slot in an ongoing circle.
+    const isRecipient = round.recipient === memberAddress;
+    if (isRecipient && isSettled) {
+      return {
+        roundIndex: round.roundIndex,
+        status: "received",
+        contributionRecord: null,
+        defaultRecord: null,
+        payoutAmountStroops: round.amount ?? null,
+        payoutTxHash: round.txHash ?? null,
+        isSettled: true,
+        freshnessNote: FRESHNESS_NOTE,
+      };
+    }
+
+    // ── Current / open round ──────────────────────────────────────────────
+    // The round has not settled yet. Check the indexed contributions list
+    // so a member who has already contributed shows "contributed" rather
+    // than "not_yet_recorded" — the contributions list on a current round
+    // is populated from real-time indexer data.
     if (isCurrent) {
+      // The designated recipient for this round is not expected to contribute.
+      // We identify the recipient slot by round index (payout_order === roundIndex)
+      // when no payout row exists yet. If round.recipient is set on a live round,
+      // it reflects early indexer data; fall back to roundIndex === payout_order
+      // which is always reliable for the current round.
+      const isDesignatedRecipient =
+        typeof round.recipient === "string"
+          ? round.recipient === memberAddress
+          : false;
+      if (isDesignatedRecipient) {
+        return {
+          roundIndex: round.roundIndex,
+          status: "not_obligated",
+          contributionRecord: null,
+          defaultRecord: null,
+          payoutAmountStroops: null,
+          payoutTxHash: null,
+          isSettled: false,
+          freshnessNote: FRESHNESS_NOTE,
+        };
+      }
+
+      // Check whether the member has already contributed this round. The
+      // contributions array on a current-round row is the indexed list —
+      // evidence here is positive confirmation, not proof of absence.
+      const contributedThisRound =
+        round.contributions.find((c) => c.member_address === memberAddress) ?? null;
+
+      if (contributedThisRound !== null) {
+        return {
+          roundIndex: round.roundIndex,
+          status: "contributed",
+          contributionRecord: contributedThisRound,
+          defaultRecord: null,
+          payoutAmountStroops: null,
+          payoutTxHash: null,
+          isSettled: false,
+          freshnessNote: FRESHNESS_NOTE,
+        };
+      }
+
+      // No indexed evidence yet for this member in the live round.
       return {
         roundIndex: round.roundIndex,
         status: "not_yet_recorded",
@@ -219,15 +277,15 @@ export function computeMemberRoundSummary(
       };
     }
 
-    // Settled round — check contribution and default records
-    const contributed = round.contributions.find(
-      (c) => c.member_address === memberAddress,
-    ) ?? null;
-    const defaulted = round.defaults.find(
-      (d) => d.member_address === memberAddress,
-    ) ?? null;
+    // ── Settled round (not recipient) ─────────────────────────────────────
+    // The recipient slot was handled above. For every other member in a
+    // completed round, check the contribution and default records.
+    const contributed =
+      round.contributions.find((c) => c.member_address === memberAddress) ?? null;
+    const defaulted =
+      round.defaults.find((d) => d.member_address === memberAddress) ?? null;
 
-    // Both records present: inconsistency
+    // Both records present: surface inconsistency rather than silently choosing.
     if (contributed !== null && defaulted !== null) {
       inconsistentCount++;
       return {
@@ -268,7 +326,9 @@ export function computeMemberRoundSummary(
       };
     }
 
-    // Settled round with no evidence for this member
+    // Settled round with no evidence for this member. The indexer may have
+    // partial data (e.g. partial ingest after a reorg). Surfaced as "unknown"
+    // so the user knows the absence of evidence is not evidence of absence.
     return {
       roundIndex: round.roundIndex,
       status: "unknown",

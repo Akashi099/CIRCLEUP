@@ -74,44 +74,69 @@ function RoundEntryRow({ entry }: { entry: MemberRoundEntry }) {
         )}
         {entry.status === "contributed" && entry.contributionRecord && (
           <span>
-            {safeFormatUsdc(entry.contributionRecord.amount)}{" "}
-            {txHash && explorerUrl && (
-              <a
-                href={explorerUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-mono underline hover:text-brand-600"
-                title={txHash}
-              >
-                {shortAddress(txHash)}
-              </a>
-            )}
-            {txHash && !explorerUrl && (
-              <span className="font-mono" title={txHash}>
-                {shortAddress(txHash)}
-              </span>
+            {safeFormatUsdc(entry.contributionRecord.amount)}
+            {txHash && (
+              <>
+                {" "}
+                {explorerUrl ? (
+                  <a
+                    href={explorerUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono underline hover:text-brand-600"
+                    title={txHash}
+                  >
+                    {shortAddress(txHash)}
+                  </a>
+                ) : (
+                  <span className="font-mono" title={txHash}>
+                    {shortAddress(txHash)}
+                  </span>
+                )}
+              </>
             )}
           </span>
         )}
         {entry.status === "received" && entry.payoutAmountStroops && (
           <span>
-            {safeFormatUsdc(entry.payoutAmountStroops)}{" "}
-            {txHash && explorerUrl && (
-              <a
-                href={explorerUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-mono underline hover:text-brand-600"
-                title={txHash}
-              >
-                {shortAddress(txHash)}
-              </a>
+            {safeFormatUsdc(entry.payoutAmountStroops)}
+            {txHash && (
+              <>
+                {" "}
+                {explorerUrl ? (
+                  <a
+                    href={explorerUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono underline hover:text-brand-600"
+                    title={txHash}
+                  >
+                    {shortAddress(txHash)}
+                  </a>
+                ) : (
+                  <span className="font-mono" title={txHash}>
+                    {shortAddress(txHash)}
+                  </span>
+                )}
+              </>
             )}
           </span>
         )}
         {entry.status === "defaulted" && entry.defaultRecord && (
           <span className="text-red-600">
             Penalty: {safeFormatUsdc(entry.defaultRecord.penalty)}
+          </span>
+        )}
+        {entry.status === "not_yet_recorded" && (
+          <span className="text-slate-400 italic">
+            {entry.isSettled
+              ? "No indexed record — indexer may have partial data."
+              : "Round in progress — no indexed evidence yet."}
+          </span>
+        )}
+        {entry.status === "unknown" && (
+          <span className="text-slate-400 italic">
+            No indexed record for this round. Check the contract for authoritative state.
           </span>
         )}
       </td>
@@ -205,6 +230,16 @@ export function MemberRoundSummary({ summary }: MemberRoundSummaryProps) {
           before acting.
         </p>
       )}
+
+      <p
+        className="text-xs text-slate-400 mt-2"
+        role="note"
+      >
+        Statuses are derived from indexed data only. A "not yet recorded" status
+        in an open round means the indexer has no evidence yet — it does not
+        confirm that no contribution was submitted. The contract is the
+        authoritative source for whether a transaction was accepted.
+      </p>
     </section>
   );
 }
