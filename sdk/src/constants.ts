@@ -13,6 +13,26 @@ export const FRIENDBOT_URL = "https://friendbot.stellar.org";
 export const USDC_DECIMALS = 7;
 export const STROOPS_PER_USDC = 10_000_000;
 
+/** Minimum members in a circle (enforced by contract). */
+export const CONTRACT_MIN_MEMBERS = 2;
+export const MIN_MEMBERS = CONTRACT_MIN_MEMBERS;
+
+/** Architectural ceiling for member count in smart contracts (contracts/circle/src/lib.rs). */
+export const CONTRACT_MAX_MEMBERS = 256;
+export const MAX_MEMBERS = CONTRACT_MAX_MEMBERS;
+
+/** Advisory UI product limit: practical circles keep rotation under 20 members for usability. */
+export const APP_MAX_MEMBERS = 20;
+
+/** Minimum round deadline in ledgers (~8.3 min @ 5s/ledger) (contracts/circle/src/lib.rs). */
+export const MIN_ROUND_DEADLINE_LEDGERS = 100;
+
+/** Maximum round deadline in ledgers (~60 days @ 5s/ledger) (contracts/circle/src/lib.rs). */
+export const MAX_ROUND_DEADLINE_LEDGERS = 1_036_800;
+
+/** Collateral multiplier: required collateral = round_amount * COLLATERAL_MULTIPLIER. */
+export const COLLATERAL_MULTIPLIER = 1;
+
 /** Approximate ledgers per day at ~5 seconds per ledger */
 export const LEDGERS_PER_DAY = 17_280;
 export const LEDGERS_PER_WEEK = LEDGERS_PER_DAY * 7;
@@ -20,6 +40,7 @@ export const LEDGERS_PER_MONTH = LEDGERS_PER_DAY * 30;
 
 /** Default penalty for a missed contribution: 20% of collateral */
 export const DEFAULT_PENALTY_BPS = 2_000; // 20%
+export const PENALTY_BPS = DEFAULT_PENALTY_BPS;
 export const BPS_DENOM = 10_000;
 
 /**
@@ -35,6 +56,216 @@ export const INDEXER_MAX_PAGE_SIZE = 100;
  * `circle_factory::MAX_PAGE_SIZE`). Larger limits are clamped on-chain.
  */
 export const FACTORY_MAX_PAGE_SIZE = 50;
+
+// ─── Protocol Parameter Inventory (#885) ──────────────────────────────────────
+
+export type ParameterEnforcingLayer =
+  | "contract-authoritative"
+  | "display-only"
+  | "operational-configuration"
+  | "advisory-client";
+
+export interface ProtocolParameterDefinition {
+  id: string;
+  name: string;
+  description: string;
+  enforcingLayer: ParameterEnforcingLayer;
+  contractSource?: {
+    crate: string;
+    file: string;
+    symbol: string;
+    value: string | number;
+  };
+  clientMirror?: {
+    pkg: string;
+    symbol: string;
+    value: string | number;
+  };
+  changeProcess: string;
+}
+
+export const PROTOCOL_PARAMETERS_INVENTORY: readonly ProtocolParameterDefinition[] = [
+  {
+    id: "max_members",
+    name: "Maximum Circle Members",
+    description: "Hard upper bound on the number of members allowed in a single circle contract.",
+    enforcingLayer: "contract-authoritative",
+    contractSource: {
+      crate: "circle",
+      file: "contracts/circle/src/lib.rs",
+      symbol: "MAX_MEMBERS",
+      value: 256,
+    },
+    clientMirror: {
+      pkg: "sdk",
+      symbol: "CONTRACT_MAX_MEMBERS",
+      value: 256,
+    },
+    changeProcess: "Smart contract upgrade and migration. Requires verifying storage gas and transaction footprint limits.",
+  },
+  {
+    id: "app_max_members",
+    name: "Application Advisory Member Ceiling",
+    description: "Deliberate UI UX ceiling for human ROSCA coordination and mobile rendering usability.",
+    enforcingLayer: "advisory-client",
+    clientMirror: {
+      pkg: "app",
+      symbol: "MAX_MEMBERS",
+      value: 20,
+    },
+    changeProcess: "Frontend product review and release cycle; strictly advisory to contract ceiling of 256.",
+  },
+  {
+    id: "min_members",
+    name: "Minimum Circle Members",
+    description: "Minimum number of participants required to initialize a peer ROSCA circle.",
+    enforcingLayer: "contract-authoritative",
+    contractSource: {
+      crate: "circle",
+      file: "contracts/circle/src/lib.rs",
+      symbol: "MIN_MEMBERS",
+      value: 2,
+    },
+    clientMirror: {
+      pkg: "sdk",
+      symbol: "CONTRACT_MIN_MEMBERS",
+      value: 2,
+    },
+    changeProcess: "Contract upgrade.",
+  },
+  {
+    id: "min_round_deadline_ledgers",
+    name: "Minimum Round Deadline Window",
+    description: "Minimum duration in ledgers before a contribution window can expire (~8.3 min @ 5s/ledger).",
+    enforcingLayer: "contract-authoritative",
+    contractSource: {
+      crate: "circle",
+      file: "contracts/circle/src/lib.rs",
+      symbol: "MIN_ROUND_DEADLINE_LEDGERS",
+      value: 100,
+    },
+    clientMirror: {
+      pkg: "sdk",
+      symbol: "MIN_ROUND_DEADLINE_LEDGERS",
+      value: 100,
+    },
+    changeProcess: "Contract parameter governance / redeployment.",
+  },
+  {
+    id: "max_round_deadline_ledgers",
+    name: "Maximum Round Deadline Window",
+    description: "Maximum allowable contribution deadline (~60 days @ 5s/ledger).",
+    enforcingLayer: "contract-authoritative",
+    contractSource: {
+      crate: "circle",
+      file: "contracts/circle/src/lib.rs",
+      symbol: "MAX_ROUND_DEADLINE_LEDGERS",
+      value: 1_036_800,
+    },
+    clientMirror: {
+      pkg: "sdk",
+      symbol: "MAX_ROUND_DEADLINE_LEDGERS",
+      value: 1_036_800,
+    },
+    changeProcess: "Contract parameter governance / redeployment.",
+  },
+  {
+    id: "collateral_multiplier",
+    name: "Collateral Requirement Multiplier",
+    description: "Multiple of round contribution amount required as upfront member security deposit.",
+    enforcingLayer: "contract-authoritative",
+    contractSource: {
+      crate: "circle",
+      file: "contracts/circle/src/lib.rs",
+      symbol: "COLLATERAL_MULTIPLIER",
+      value: 1,
+    },
+    clientMirror: {
+      pkg: "sdk",
+      symbol: "COLLATERAL_MULTIPLIER",
+      value: 1,
+    },
+    changeProcess: "Contract upgrade and risk model review.",
+  },
+  {
+    id: "penalty_bps",
+    name: "Default Penalty Basis Points",
+    description: "Basis points deducted from member collateral on default (2,000 BPS = 20%).",
+    enforcingLayer: "contract-authoritative",
+    contractSource: {
+      crate: "circle",
+      file: "contracts/circle/src/lib.rs",
+      symbol: "PENALTY_BPS",
+      value: 2_000,
+    },
+    clientMirror: {
+      pkg: "sdk",
+      symbol: "DEFAULT_PENALTY_BPS",
+      value: 2_000,
+    },
+    changeProcess: "Contract upgrade and economic parameter review.",
+  },
+  {
+    id: "bps_denom",
+    name: "Basis Points Denominator",
+    description: "Canonical denominator for basis points calculation (10,000 = 100%).",
+    enforcingLayer: "contract-authoritative",
+    contractSource: {
+      crate: "circle",
+      file: "contracts/circle/src/lib.rs",
+      symbol: "BPS_DENOM",
+      value: 10_000,
+    },
+    clientMirror: {
+      pkg: "sdk",
+      symbol: "BPS_DENOM",
+      value: 10_000,
+    },
+    changeProcess: "Mathematical invariant across finance protocols; immutable.",
+  },
+  {
+    id: "usdc_decimals",
+    name: "USDC Token Precision",
+    description: "Decimal places for Stellar USDC / token contracts (7 decimals = 10,000,000 stroops per token).",
+    enforcingLayer: "contract-authoritative",
+    clientMirror: {
+      pkg: "sdk",
+      symbol: "USDC_DECIMALS",
+      value: 7,
+    },
+    changeProcess: "Fixed by Stellar classic asset precision standard (1 stroop = 10^-7 USDC).",
+  },
+  {
+    id: "factory_max_page_size",
+    name: "Factory Registry Page Size Ceiling",
+    description: "Maximum items returned in a single page by CircleFactory.get_circles_paginated.",
+    enforcingLayer: "contract-authoritative",
+    contractSource: {
+      crate: "circle_factory",
+      file: "contracts/circle_factory/src/registry.rs",
+      symbol: "MAX_PAGE_SIZE",
+      value: 50,
+    },
+    clientMirror: {
+      pkg: "sdk",
+      symbol: "FACTORY_MAX_PAGE_SIZE",
+      value: 50,
+    },
+    changeProcess: "Factory contract upgrade, bounded by Soroban transaction read gas.",
+  },
+  {
+    id: "indexer_max_page_size",
+    name: "Indexer API Page Limit Ceiling",
+    description: "Maximum records returned in a single REST request by indexer endpoints.",
+    enforcingLayer: "operational-configuration",
+    clientMirror: {
+      pkg: "sdk",
+      symbol: "INDEXER_MAX_PAGE_SIZE",
+      value: 100,
+    },
+    changeProcess: "Indexer API configuration and deployment.",
+  },
+] as const;
 
 // ─── Network config helpers ───────────────────────────────────────────────────
 
