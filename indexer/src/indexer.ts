@@ -105,6 +105,15 @@ import {
   LedgerContradictionError,
 } from "./ledgerContradiction";
 import { parseInitializedEvent, parseJoinedEvent, parseCircleCreatedEvent } from "./eventParsers";
+import {
+  recordPollCycle,
+  recordPollRpcLatency,
+  recordLedgerPositions,
+  recordEvent,
+  recordEventDecodeFailure,
+  recordDbCommitDuration,
+  type EventCategory,
+} from "./metrics";
 
 export const rpc = new SorobanRpc.Server(STELLAR_RPC_URL, {
   allowHttp: true,
@@ -113,6 +122,13 @@ export const rpc = new SorobanRpc.Server(STELLAR_RPC_URL, {
 const FACTORY = CIRCLE_FACTORY_ADDRESS;
 const REPUTATION = REPUTATION_ADDRESS;
 export const USDC = USDC_ADDRESS;
+
+function categorizeEvent(topic0: string, contractId?: string | null): EventCategory {
+  if (topic0 === "circle") return "circle";
+  if (topic0 === "factory" || (contractId && contractId === FACTORY)) return "factory";
+  if (topic0 === "reputation" || (contractId && contractId === REPUTATION)) return "reputation";
+  return "unknown";
+}
 
 // ─── Soroban RPC retry ───────────────────────────────────────────────────────
 // RPC_RETRY_MAX_ATTEMPTS and RPC_RETRY_BASE_DELAY_MS are validated and
@@ -212,7 +228,10 @@ export async function withRpcRetry<T>(
   for (let attempt = 1; attempt <= attempts; attempt++) {
     tried = attempt;
     try {
-      return await fn();
+      const rpcStart = Date.now();
+      const res = await fn();
+      recordPollRpcLatency(Date.now() - rpcStart);
+      return res;
     } catch (err) {
       lastErr = err;
       const transient = isTransientRpcError(err);
@@ -451,6 +470,7 @@ export async function processLedger(
       const topic0 = event.topic?.[0] ? getTopicStr(event, 0) : "";
       const topic1 = event.topic?.[1] ? getTopicStr(event, 1) : "";
       const eventType = topic0 && topic1 ? `${topic0}/${topic1}` : topic0 || "unknown";
+      const category = categorizeEvent(topic0, contractId);
 
       await client.query("SAVEPOINT sp_event");
       try {
@@ -459,10 +479,12 @@ export async function processLedger(
         if (ingested) {
           processed++;
           totalEventsProcessed++;
+          recordEvent(category, "processed");
           succeededEventIds.push(eventFailureId(event, contractId, eventType));
         } else {
           skipped++;
           totalEventsSkipped++;
+          recordEvent(category, "skipped");
         }
       } catch (err) {
         const evidence = buildFailureEvidence({ event, contractId, eventType, error: err });
@@ -474,6 +496,7 @@ export async function processLedger(
         // loop's backoff retries the ledger from scratch.
         if (evidence.errorClass === "transient") {
           totalEventsRetried++;
+          recordEvent(category, "retried");
           logEventHandlerError({
             ledger,
             eventType,
@@ -489,6 +512,7 @@ export async function processLedger(
         await client.query("ROLLBACK TO SAVEPOINT sp_event");
         failed++;
         totalEventsFailed++;
+        recordEvent(category, "failed");
         failures.push(evidence);
         logEventHandlerError({
           ledger,
@@ -519,6 +543,7 @@ export async function processLedger(
     // Advance the durable ledger cursor atomically with the event writes.
     // If this transaction rolls back (e.g. DB OOM), the cursor stays at the
     // previous ledger so the next poll retries this ledger from scratch.
+    const commitStart = Date.now();
     await client.query(
       "UPDATE indexer_state SET last_ledger = $1, updated_at = NOW() WHERE id = 1",
       [ledger],
@@ -533,6 +558,7 @@ export async function processLedger(
              processed_at  = NOW()`,
       [ledger, processed, failed],
     );
+    recordDbCommitDuration(Date.now() - commitStart);
 
     const latencyMs = Date.now() - ledgerStartedAt;
     logLedgerProcessed({ ledger, processed, failed, skipped, latencyMs });
@@ -1092,6 +1118,9 @@ export function routeEvent(event: SdkEvent): EventHandler | null {
 
   if (classification.status === "ignored") return null;
   if (classification.status === "unknown" || classification.status === "incompatible") {
+    const topic0 = event.topic?.[0] ? getTopicStr(event, 0) : "";
+    const contractId = getContractIdStr(event);
+    recordEventDecodeFailure(categorizeEvent(topic0, contractId));
     const message = quarantineMessage(classification);
     return {
       event,
@@ -1517,40 +1546,48 @@ export async function runPollCycle(): Promise<void> {
   let lastLedger = await getLastLedger();
   if (lastLedger === 0) lastLedger = START_LEDGER;
 
-  const latestLedger = await withRpcRetry("getLatestLedger", () => rpc.getLatestLedger());
-  const headLedger = latestLedger.sequence;
-  const toLedger = batchEnd(lastLedger + 1, headLedger, BACKFILL_MAX_LEDGERS);
-  backfillProgress = { durableLedger: lastLedger, headLedger, fromLedger: lastLedger + 1, toLedger, remainingLedgers: Math.max(0, headLedger - lastLedger), estimatedBatches: Math.ceil(Math.max(0, headLedger - lastLedger) / BACKFILL_MAX_LEDGERS) };
+  try {
+    const latestLedger = await withRpcRetry("getLatestLedger", () => rpc.getLatestLedger());
+    const headLedger = latestLedger.sequence;
+    const toLedger = batchEnd(lastLedger + 1, headLedger, BACKFILL_MAX_LEDGERS);
+    backfillProgress = { durableLedger: lastLedger, headLedger, fromLedger: lastLedger + 1, toLedger, remainingLedgers: Math.max(0, headLedger - lastLedger), estimatedBatches: Math.ceil(Math.max(0, headLedger - lastLedger) / BACKFILL_MAX_LEDGERS) };
+    recordLedgerPositions(lastLedger, headLedger);
 
-  // Issue 98: Detect contradictory ledger sequence regression
-  const contradiction = detectLedgerSequenceRegression(lastLedger, toLedger, latestLedger.id);
-  if (contradiction) {
-    logLedgerContradiction(contradiction);
-    throw new LedgerContradictionError(contradiction);
-  }
-
-  if (toLedger > lastLedger) {
-    // Shrink a dense range without committing any partially fetched pages.
-    let end = toLedger;
-    while (true) {
-      backfillProgress.toLedger = end;
-      try { await processEvents(lastLedger + 1, end, () => shuttingDown); break; }
-      catch (err) {
-        if (!(err instanceof BatchLimitError) || end <= lastLedger + 1) throw err;
-        end = lastLedger + Math.max(1, Math.floor((end - lastLedger) / 2));
-      }
+    // Issue 98: Detect contradictory ledger sequence regression
+    const contradiction = detectLedgerSequenceRegression(lastLedger, toLedger, latestLedger.id);
+    if (contradiction) {
+      logLedgerContradiction(contradiction);
+      throw new LedgerContradictionError(contradiction);
     }
-    backfillProgress = { ...backfillProgress, toLedger: end, durableLedger: await getLastLedger() };
-    backfillProgress.remainingLedgers = Math.max(0, headLedger - backfillProgress.durableLedger);
-    backfillProgress.estimatedBatches = Math.ceil(backfillProgress.remainingLedgers / BACKFILL_MAX_LEDGERS);
+
+    if (toLedger > lastLedger) {
+      // Shrink a dense range without committing any partially fetched pages.
+      let end = toLedger;
+      while (true) {
+        backfillProgress.toLedger = end;
+        try { await processEvents(lastLedger + 1, end, () => shuttingDown); break; }
+        catch (err) {
+          if (!(err instanceof BatchLimitError) || end <= lastLedger + 1) throw err;
+          end = lastLedger + Math.max(1, Math.floor((end - lastLedger) / 2));
+        }
+      }
+      backfillProgress = { ...backfillProgress, toLedger: end, durableLedger: await getLastLedger() };
+      backfillProgress.remainingLedgers = Math.max(0, headLedger - backfillProgress.durableLedger);
+      backfillProgress.estimatedBatches = Math.ceil(backfillProgress.remainingLedgers / BACKFILL_MAX_LEDGERS);
+    }
+    
+    // Success — reset backoff so the next failure starts from the initial interval
+    resetBackoff(backoffState);
+    
+    pollCyclesCompleted++;
+    lastPollDurationMs = Date.now() - cycleStartedAt;
+    lastPollLedgerRange = `${lastLedger + 1}-${backfillProgress.durableLedger}`;
+    recordLedgerPositions(backfillProgress.durableLedger, headLedger);
+    recordPollCycle("success", lastPollDurationMs);
+  } catch (err) {
+    recordPollCycle("failure", Date.now() - cycleStartedAt);
+    throw err;
   }
-  
-  // Success — reset backoff so the next failure starts from the initial interval
-  resetBackoff(backoffState);
-  
-  pollCyclesCompleted++;
-  lastPollDurationMs = Date.now() - cycleStartedAt;
-  lastPollLedgerRange = `${lastLedger + 1}-${backfillProgress.durableLedger}`;
 }
 
 // ─── Poller lifecycle (graceful shutdown) ─────────────────────────────────────

@@ -304,6 +304,9 @@ pub const MIN_ROUND_DEADLINE_LEDGERS: u32 = 100;
 /// prevents accidental multi-year lockups from a typo in the deadline field.
 pub const MAX_ROUND_DEADLINE_LEDGERS: u32 = 1_036_800;
 
+/// Minimum number of members a circle may have.
+pub const MIN_MEMBERS: u32 = 2;
+
 /// Maximum number of members a circle may have.
 ///
 /// Keeping the member list bounded limits gas costs for `payout` (which
@@ -577,7 +580,7 @@ impl CircleContract {
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
 
-        if members.len() < 2 {
+        if members.len() < MIN_MEMBERS {
             env.panic_with_error(InitError::TooFewMembers);
         }
         if members.len() > MAX_MEMBERS {

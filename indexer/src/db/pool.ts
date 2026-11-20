@@ -1,5 +1,6 @@
-import { Pool, PoolClient, QueryResultRow } from "pg";
+import { Pool, PoolClient, PoolConfig, QueryResultRow } from "pg";
 import * as dotenv from "dotenv";
+import * as fs from "fs";
 import {
   DB_CONNECT_MAX_RETRIES,
   DB_CONNECT_BASE_DELAY_MS,
@@ -10,59 +11,277 @@ import {
 
 dotenv.config();
 
-// ── Pool backpressure policy ──────────────────────────────────────────────────
+// ── Database Transport Security & Configuration ──────────────────────────────
 //
-// Three parameters govern how the pool handles concurrency pressure:
-//
-//   DB_POOL_MAX             — maximum active connections (default 10).
-//   DB_ACQUIRE_TIMEOUT_MS   — maximum wait before a caller receives a
-//                             PoolSaturationError instead of queuing forever
-//                             (default 5 000 ms, matches pg's default
-//                             connectionTimeoutMillis so existing behaviour is
-//                             preserved unless the operator overrides it).
-//   DB_STATEMENT_TIMEOUT_MS — Postgres-level per-query time-box: Postgres
-//                             cancels the query and returns an error to the
-//                             client, releasing the connection within a
-//                             bounded time (default 30 000 ms; 0 = disabled).
-//
-// These three together bound database demand, make overload explicit and
-// observable (PoolSaturationError vs silent queue), and ensure the poller
-// cannot advance a ledger checkpoint if a DB write times out.
+// Requirements (#936):
+//  1. Transport security in production: When NODE_ENV=production or CIRCLEUP_PROFILE=production,
+//     TLS is mandatory. Non-TLS connections are rejected at startup.
+//  2. Explicit certificate verification: TLS must not silently disable certificate
+//     verification (rejectUnauthorized: false is disallowed in production unless
+//     an explicit insecure opt-in is configured).
+//  3. Connection timeouts and application name: Explicit timeouts and a stable
+//     application_name are passed into the pool for database-level query tracing.
+//  4. Secret-safe error logging: Error messages, logs, and diagnostics NEVER
+//     contain credentials or the unredacted DATABASE_URL.
+
+/** Non-sensitive description of the active PostgreSQL connection policy. */
+export interface ConnectionSecurityReport {
+  host: string;
+  port: number;
+  database: string;
+  sslEnabled: boolean;
+  sslRejectUnauthorized: boolean | null;
+  hasCustomCa: boolean;
+  applicationName: string;
+  connectionTimeoutMs: number;
+  isProduction: boolean;
+}
 
 /**
- * Thrown when all pool connections are checked out and a new `connect()` call
- * cannot acquire one within `DB_ACQUIRE_TIMEOUT_MS`.
+ * Redacts passwords and credentials from a PostgreSQL connection string.
  *
- * Callers must NOT retry silently on this error — surfacing it lets operators
- * see saturation via logs and the /health endpoint before it becomes an
- * outage.  The HTTP layer maps this to 503 Service Unavailable.
+ * @param rawUrl Unredacted or partially redacted connection string.
+ * @returns Redacted URL where password is replaced by '***'.
  */
-export class PoolSaturationError extends Error {
-  /** Total connections the pool is configured to hold. */
-  readonly poolMax: number;
-  /** Milliseconds the caller waited before giving up. */
-  readonly acquireTimeoutMs: number;
-
-  constructor(poolMax: number, acquireTimeoutMs: number) {
-    super(
-      `[db] Pool saturated: all ${poolMax} connection(s) are in use. ` +
-        `Acquisition timed out after ${acquireTimeoutMs}ms. ` +
-        `Increase DB_POOL_MAX or reduce concurrent DB consumers.`,
-    );
-    this.name = "PoolSaturationError";
-    this.poolMax = poolMax;
-    this.acquireTimeoutMs = acquireTimeoutMs;
+export function redactDatabaseUrl(rawUrl?: string): string {
+  if (!rawUrl || typeof rawUrl !== "string") return "";
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.password) {
+      parsed.password = "***";
+    }
+    return parsed.toString();
+  } catch {
+    // Regex fallback for non-standard or malformed URLs
+    return rawUrl.replace(/(postgres(?:ql)?:\/\/[^:]+:)([^@]+)(@)/i, "$1***$3");
   }
 }
 
-export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: DB_POOL_MAX,
-  idleTimeoutMillis: 30_000,
-  // pg's own connection-timeout is kept in sync with our acquisition timeout
-  // so the two mechanisms agree on the wait budget.
-  connectionTimeoutMillis: DB_ACQUIRE_TIMEOUT_MS,
-});
+/**
+ * Sanitizes any text string that might contain a PostgreSQL connection URL,
+ * replacing the password with '***'.
+ */
+export function redactCredentialsInText(text: string): string {
+  if (!text || typeof text !== "string") return "";
+  return text.replace(/(postgres(?:ql)?:\/\/[^:]+:)([^@]+)(@)/gi, "$1***$3");
+}
+
+/**
+ * Builds and validates PoolConfig from environment options and DATABASE_URL.
+ *
+ * Validates production security rules (TLS required, certificate verification
+ * active) and generates a non-sensitive security report.
+ */
+export function buildPoolConfig(
+  rawUrl: string | undefined = process.env.DATABASE_URL,
+  env: Record<string, string | undefined> = process.env as Record<string, string | undefined>,
+): { poolConfig: PoolConfig; security: ConnectionSecurityReport } {
+  const isProduction =
+    (env.NODE_ENV || "").toLowerCase() === "production" ||
+    (env.CIRCLEUP_PROFILE || "").toLowerCase() === "production";
+
+  let host = "localhost";
+  let port = 5432;
+  let database = "circleup";
+  let sslmode: string | null = null;
+  let sslParam: string | null = null;
+
+  if (rawUrl && rawUrl.trim() !== "") {
+    try {
+      const parsed = new URL(rawUrl);
+      if (!parsed.protocol.startsWith("postgres")) {
+        throw new Error(
+          `[db] Invalid database URL protocol: ${parsed.protocol}. Expected postgresql:// or postgres://.`,
+        );
+      }
+      host = parsed.hostname || "localhost";
+      port = parsed.port ? parseInt(parsed.port, 10) : 5432;
+      database = parsed.pathname ? parsed.pathname.replace(/^\//, "") : "circleup";
+      sslmode = parsed.searchParams.get("sslmode")?.toLowerCase() || null;
+      sslParam = parsed.searchParams.get("ssl")?.toLowerCase() || null;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `[db] Malformed DATABASE_URL: ${redactDatabaseUrl(rawUrl)}. ${msg}`,
+      );
+    }
+  }
+
+  // 1. Determine SSL / TLS enablement
+  const envDbSsl = (env.DB_SSL || "").toLowerCase();
+  let sslEnabled = false;
+
+  if (sslmode === "disable") {
+    sslEnabled = false;
+  } else if (
+    sslmode === "require" ||
+    sslmode === "verify-ca" ||
+    sslmode === "verify-full" ||
+    sslmode === "no-verify" ||
+    sslParam === "true" ||
+    envDbSsl === "true" ||
+    envDbSsl === "1"
+  ) {
+    sslEnabled = true;
+  }
+
+  // 2. Determine Certificate Verification (rejectUnauthorized)
+  const envRejectUnauthorized = (env.DB_SSL_REJECT_UNAUTHORIZED || "").toLowerCase();
+  let rejectUnauthorized: boolean | null = null;
+
+  if (sslEnabled) {
+    if (envRejectUnauthorized === "false" || envRejectUnauthorized === "0" || sslmode === "no-verify") {
+      rejectUnauthorized = false;
+    } else if (
+      envRejectUnauthorized === "true" ||
+      envRejectUnauthorized === "1" ||
+      sslmode === "verify-full" ||
+      sslmode === "verify-ca"
+    ) {
+      rejectUnauthorized = true;
+    } else {
+      // In production, default to strict verification (true).
+      // In development, default to true if verify-full/ca requested, else true for safety.
+      rejectUnauthorized = isProduction ? true : false;
+    }
+  }
+
+  // 3. Custom CA Certificate
+  let customCa: string | undefined;
+  let hasCustomCa = false;
+  const rawCa = env.DB_SSL_CA;
+  if (rawCa && rawCa.trim() !== "") {
+    if (rawCa.includes("BEGIN CERTIFICATE")) {
+      customCa = rawCa;
+      hasCustomCa = true;
+    } else {
+      try {
+        if (fs.existsSync(rawCa)) {
+          customCa = fs.readFileSync(rawCa, "utf8");
+          hasCustomCa = true;
+        }
+      } catch {
+        // Fall back to treating as raw string
+        customCa = rawCa;
+        hasCustomCa = true;
+      }
+    }
+  }
+
+  // 4. Production Security Validation Rules
+  if (isProduction) {
+    if (!sslEnabled) {
+      throw new Error(
+        "[db] Insecure database transport rejected for production: TLS/SSL must be enabled via DATABASE_URL (?sslmode=verify-full or ?sslmode=require) or DB_SSL=true.",
+      );
+    }
+
+    const allowInsecure = (env.DB_SSL_ALLOW_INSECURE || "").toLowerCase() === "true";
+    if (rejectUnauthorized === false && !allowInsecure) {
+      throw new Error(
+        "[db] Insecure database configuration rejected for production: TLS certificate verification cannot be silently disabled (rejectUnauthorized=false). Provide a valid certificate authority (DB_SSL_CA) or configure sslmode=verify-full.",
+      );
+    }
+  }
+
+  const appName = env.DB_APPLICATION_NAME || "circleup-indexer";
+  const timeoutMs = DB_ACQUIRE_TIMEOUT_MS;
+
+  const poolConfig: PoolConfig = {
+    connectionString: rawUrl,
+    max: DB_POOL_MAX,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: timeoutMs,
+    application_name: appName,
+    ...(sslEnabled
+      ? {
+          ssl: {
+            rejectUnauthorized: rejectUnauthorized ?? true,
+            ...(customCa ? { ca: customCa } : {}),
+          },
+        }
+      : {}),
+  };
+
+  const security: ConnectionSecurityReport = {
+    host,
+    port,
+    database,
+    sslEnabled,
+    sslRejectUnauthorized: rejectUnauthorized,
+    hasCustomCa,
+    applicationName: appName,
+    connectionTimeoutMs: timeoutMs,
+    isProduction,
+  };
+
+  return { poolConfig, security };
+}
+
+let activeSecurityReport: ConnectionSecurityReport | null = null;
+
+/**
+ * Returns the non-sensitive configuration state of the active database connection pool.
+ */
+export function getConnectionSecurityReport(): ConnectionSecurityReport {
+  if (!activeSecurityReport) {
+    try {
+      const { security } = buildPoolConfig();
+      activeSecurityReport = security;
+    } catch {
+      return {
+        host: "unknown",
+        port: 5432,
+        database: "circleup",
+        sslEnabled: false,
+        sslRejectUnauthorized: null,
+        hasCustomCa: false,
+        applicationName: process.env.DB_APPLICATION_NAME || "circleup-indexer",
+        connectionTimeoutMs: DB_ACQUIRE_TIMEOUT_MS,
+        isProduction:
+          (process.env.NODE_ENV || "").toLowerCase() === "production" ||
+          (process.env.CIRCLEUP_PROFILE || "").toLowerCase() === "production",
+      };
+    }
+  }
+  return activeSecurityReport;
+}
+
+const { poolConfig: initialPoolConfig, security: initialSecurity } = (() => {
+  try {
+    return buildPoolConfig();
+  } catch (err) {
+    if (
+      (process.env.NODE_ENV || "").toLowerCase() === "production" ||
+      (process.env.CIRCLEUP_PROFILE || "").toLowerCase() === "production"
+    ) {
+      throw err;
+    }
+    return {
+      poolConfig: {
+        connectionString: process.env.DATABASE_URL,
+        max: DB_POOL_MAX,
+        idleTimeoutMillis: 30_000,
+        connectionTimeoutMillis: DB_ACQUIRE_TIMEOUT_MS,
+      },
+      security: {
+        host: "localhost",
+        port: 5432,
+        database: "circleup",
+        sslEnabled: false,
+        sslRejectUnauthorized: null,
+        hasCustomCa: false,
+        applicationName: process.env.DB_APPLICATION_NAME || "circleup-indexer",
+        connectionTimeoutMs: DB_ACQUIRE_TIMEOUT_MS,
+        isProduction: false,
+      },
+    };
+  }
+})();
+
+activeSecurityReport = initialSecurity;
+
+export const pool = new Pool(initialPoolConfig);
 
 pool.on("error", (err) => {
   console.error("[db] Unexpected pool error:", err);
@@ -75,19 +294,22 @@ pool.on("error", (err) => {
 // unwraps it (and falls back to `.code`, e.g. "ECONNREFUSED") to keep the
 // retry/failure logs actually readable.
 function describeConnectionError(err: unknown): string {
+  let text = String(err);
   if (err && typeof err === "object") {
     const { message, code, errors } = err as {
       message?: string;
       code?: string;
       errors?: unknown[];
     };
-    if (message) return message;
-    if (Array.isArray(errors) && errors.length > 0) {
-      return errors.map((e) => (e instanceof Error ? e.message : String(e))).join("; ");
+    if (message) {
+      text = message;
+    } else if (Array.isArray(errors) && errors.length > 0) {
+      text = errors.map((e) => (e instanceof Error ? e.message : String(e))).join("; ");
+    } else if (code) {
+      text = code;
     }
-    if (code) return code;
   }
-  return String(err);
+  return redactCredentialsInText(text);
 }
 
 // ── Pool stats ────────────────────────────────────────────────────────────────

@@ -72,6 +72,7 @@ use soroban_sdk::{
 };
 
 // Circle protocol constants — must match circle contract invariants exactly.
+pub const MIN_MEMBERS: u32 = 2;
 pub const MAX_MEMBERS: u32 = 256;
 pub const MIN_ROUND_DEADLINE_LEDGERS: u32 = 100;
 pub const MAX_ROUND_DEADLINE_LEDGERS: u32 = 1_036_800;
@@ -164,7 +165,7 @@ fn validate_create_inputs(
 ) -> Result<(), FactoryError> {
     // Member count bounds — mirrors circle contract limits exactly.
     let member_count = members.len();
-    if member_count < 2 {
+    if member_count < MIN_MEMBERS {
         return Err(FactoryError::TooFewMembers);
     }
     if member_count > MAX_MEMBERS {

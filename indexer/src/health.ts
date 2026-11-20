@@ -36,7 +36,7 @@ import * as StellarSdk from "@stellar/stellar-sdk";
 const { xdr, scValToNative, Contract } = StellarSdk;
 const SorobanRpc = (StellarSdk as any).rpc ?? (StellarSdk as any).SorobanRpc;
 import type { MigrationHealth } from "./db/migrate";
-import { query, getPoolStats, PoolSaturationError } from "./db/pool";
+import { query, getPoolStats, PoolSaturationError, getConnectionSecurityReport } from "./db/pool";
 import { isUndefinedTable, summarizeOpenEventFailures } from "./eventFailures";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -170,6 +170,7 @@ export async function checkDbConnectivity(): Promise<ComponentHealth> {
   try {
     await withTimeout(query("SELECT 1"), HEALTH_TIMEOUT_MS);
     const stats = getPoolStats();
+    const security = getConnectionSecurityReport();
     // Report saturation as degraded even when the SELECT 1 succeeds, so a
     // health-poller sees the pressure before the next request fails.
     const saturated = stats.waitingCount > 0;
@@ -186,10 +187,12 @@ export async function checkDbConnectivity(): Promise<ComponentHealth> {
         totalConnections: stats.totalCount,
         idleConnections: stats.idleCount,
         waitingCallers: stats.waitingCount,
+        connectionSecurity: security,
       },
     };
   } catch (err) {
     const stats = getPoolStats();
+    const security = getConnectionSecurityReport();
     const isSaturation = err instanceof PoolSaturationError;
     return {
       status: isSaturation ? "degraded" : "error",
@@ -201,6 +204,7 @@ export async function checkDbConnectivity(): Promise<ComponentHealth> {
         idleConnections: stats.idleCount,
         waitingCallers: stats.waitingCount,
         saturated: isSaturation,
+        connectionSecurity: security,
       },
     };
   }
