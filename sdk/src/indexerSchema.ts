@@ -26,7 +26,8 @@
  * | `integer`   | a JSON number that is a safe integer                       |
  * | `boolean`   | `true` / `false`                                           |
  * | `stroops`   | a decimal integer **string** (e.g. `"100000000"`) — monetary amounts must never be JSON numbers, which lose precision above 2^53 |
- * | `bigint`    | a non-negative integer as a JSON number *or* decimal string — Postgres BIGINT columns (ledger sequences) serialise as strings, while values computed in JS serialise as numbers |
+ * | `uint_string` | a non-negative decimal integer **string** (e.g. `"1200000"`) — persisted Postgres BIGINT columns (row-level ledger sequences, `round_deadline_ledgers`) |
+ * | `bigint`    | **legacy, lenient** — a non-negative integer as a JSON number *or* decimal string. No built-in schema uses it any more (issue #897); kept so external schemas that reference it keep compiling |
  * | `timestamp` | an ISO-8601 string that `Date.parse` accepts               |
  * | `object`    | a JSON object validated against `fields`                   |
  * | `array`     | a JSON array whose elements match `items`                  |
@@ -37,6 +38,7 @@ export type IndexerWireType =
   | "integer"
   | "boolean"
   | "stroops"
+  | "uint_string"
   | "bigint"
   | "timestamp"
   | "object"
@@ -79,7 +81,8 @@ const str = (extra?: Partial<IndexerFieldSpec>): IndexerFieldSpec => ({ type: "s
 const int = (extra?: Partial<IndexerFieldSpec>): IndexerFieldSpec => ({ type: "integer", ...extra });
 const bool = (extra?: Partial<IndexerFieldSpec>): IndexerFieldSpec => ({ type: "boolean", ...extra });
 const stroops = (extra?: Partial<IndexerFieldSpec>): IndexerFieldSpec => ({ type: "stroops", ...extra });
-const big = (extra?: Partial<IndexerFieldSpec>): IndexerFieldSpec => ({ type: "bigint", ...extra });
+/** Persisted BIGINT column — always a decimal string on the wire. */
+const seq = (extra?: Partial<IndexerFieldSpec>): IndexerFieldSpec => ({ type: "uint_string", ...extra });
 const ts = (extra?: Partial<IndexerFieldSpec>): IndexerFieldSpec => ({ type: "timestamp", ...extra });
 const obj = (fields: IndexerObjectSchema, extra?: Partial<IndexerFieldSpec>): IndexerFieldSpec => ({
   type: "object",
@@ -104,6 +107,19 @@ const PAGINATION = obj({
   total: int(),
   totalPages: int(),
   hasMore: bool({ optional: true }),
+  // Opaque keyset continuation token (issue #898). Sent by the cursor-capable
+  // history endpoints only; `null` on the last page.
+  nextCursor: str({ optional: true, nullable: true }),
+});
+
+/**
+ * Envelope of a keyset (cursor) page — issue #898. Cursor pages skip the
+ * COUNT(*) so they carry no `page` / `total` / `totalPages`.
+ */
+const CURSOR_PAGINATION = obj({
+  limit: int(),
+  hasMore: bool(),
+  nextCursor: str({ nullable: true }),
 });
 
 /** ApiCircleRow — GET /circles rows and the `circle` of GET /circles/:address. */
@@ -115,12 +131,13 @@ const CIRCLE_ROW: IndexerObjectSchema = {
   status: str({ enum: CIRCLE_STATUSES }),
   current_round: int(),
   total_rounds: int(),
-  created_ledger: big(),
+  created_ledger: seq(),
   updated_at: ts(),
   // Detail-only fields (the detail endpoint selects every column).
   id: int({ optional: true }),
-  deadline_ledger: big({ optional: true, nullable: true }),
-  round_deadline_ledgers: big({ optional: true, nullable: true }),
+  // Computed in JS from created_ledger — a JSON integer.
+  deadline_ledger: int({ optional: true, nullable: true }),
+  round_deadline_ledgers: seq({ optional: true, nullable: true }),
 };
 
 /** ApiMemberRow — GET /circles/:address and GET /circles/:address/members. */
@@ -148,7 +165,7 @@ const ROUND_CONTRIBUTION = obj({
   id: int({ optional: true }),
   circle_address: str({ optional: true }),
   round_index: int({ optional: true }),
-  ledger: big({ optional: true }),
+  ledger: seq({ optional: true }),
   created_at: ts({ optional: true }),
 });
 
@@ -160,7 +177,7 @@ const DEFAULT_ROW = obj({
   circle_address: str({ optional: true }),
   round_index: int({ optional: true }),
   tx_hash: str({ optional: true }),
-  ledger: big({ optional: true }),
+  ledger: seq({ optional: true }),
   created_at: ts({ optional: true }),
 });
 
@@ -171,10 +188,37 @@ const ROUND_ROW = obj({
   recipient: str({ nullable: true }),
   amount: stroops({ nullable: true }),
   txHash: str({ nullable: true }),
-  ledger: big({ optional: true, nullable: true }),
-  deadlineLedger: big({ optional: true, nullable: true }),
+  ledger: seq({ optional: true, nullable: true }),
+  // Computed in JS — a JSON integer.
+  deadlineLedger: int({ optional: true, nullable: true }),
   contributions: arr(ROUND_CONTRIBUTION),
   defaults: arr(DEFAULT_ROW),
+});
+
+/** One row of GET /members/:member/contributions. */
+const MEMBER_CONTRIBUTION_ROW = obj({
+  circle_address: str(),
+  member_address: str(),
+  round_index: int(),
+  amount: stroops(),
+  tx_hash: str(),
+  ledger: seq(),
+  created_at: ts(),
+});
+
+/** One event of GET /circles/:address/activity. */
+const ACTIVITY_EVENT = obj({
+  type:           str(),
+  actor:          str(),
+  round:          int(),
+  amount:         stroops({ nullable: true }),
+  penalty:        stroops({ nullable: true }),
+  tx_hash:        str(),
+  // toSafeInteger(ledger) in the handler — a JSON integer.
+  ledger:         int(),
+  event_position: int(),
+  id:             str(),
+  timestamp:      ts({ nullable: true }),
 });
 
 // ── Endpoint schemas ───────────────────────────────────────────────────────────
@@ -194,7 +238,8 @@ export const INDEXER_RESPONSE_SCHEMAS = {
   circleDetail: {
     circle: obj(CIRCLE_ROW),
     members: arr(obj(MEMBER_ROW)),
-    latestLedger: big({ nullable: true }),
+    // Number(indexer_state.last_ledger) — a JSON integer.
+    latestLedger: int({ nullable: true }),
   },
   /** GET /circles/:address/members */
   members: {
@@ -207,7 +252,7 @@ export const INDEXER_RESPONSE_SCHEMAS = {
       },
       { optional: true },
     ),
-    roundDeadlineLedgers: big({ optional: true, nullable: true }),
+    roundDeadlineLedgers: seq({ optional: true, nullable: true }),
   },
   /** GET /circles/:address/rounds */
   rounds: {
@@ -220,19 +265,17 @@ export const INDEXER_RESPONSE_SCHEMAS = {
   memberContributions: {
     member: str(),
     circle: str({ nullable: true }),
-    contributions: arr(
-      obj({
-        circle_address: str(),
-        member_address: str(),
-        round_index: int(),
-        amount: stroops(),
-        tx_hash: str(),
-        ledger: big(),
-        created_at: ts(),
-      }),
-    ),
+    contributions: arr(MEMBER_CONTRIBUTION_ROW),
     totalAmount: stroops({ optional: true }),
     pagination: PAGINATION,
+  },
+  /** GET /members/:member/contributions?cursor= (issue #898) */
+  memberContributionsCursor: {
+    member: str(),
+    circle: str({ nullable: true }),
+    contributions: arr(MEMBER_CONTRIBUTION_ROW),
+    totalAmount: stroops({ optional: true }),
+    pagination: CURSOR_PAGINATION,
   },
   /** GET /reputation/:member */
   reputation: {
@@ -256,7 +299,7 @@ export const INDEXER_RESPONSE_SCHEMAS = {
         circle_address: str(),
         event_type: str({ enum: ["cancelled", "closed"] }),
         triggered_by: str({ nullable: true }),
-        ledger: big({ nullable: true }),
+        ledger: seq({ nullable: true }),
         tx_hash: str({ nullable: true }),
         total_released: stroops({ nullable: true }),
         total_expected_collateral: stroops({ nullable: true }),
@@ -276,7 +319,8 @@ export const INDEXER_RESPONSE_SCHEMAS = {
   },
   /** GET /indexer/state */
   indexerState: {
-    lastLedger: big(),
+    // Number(indexer_state.last_ledger) — a JSON integer.
+    lastLedger: int(),
     updatedAt: ts(),
     totalEvents: int(),
     eventCounts: rec(int()),
@@ -310,21 +354,14 @@ export const INDEXER_RESPONSE_SCHEMAS = {
   /** GET /circles/:address/activity */
   circleActivity: {
     circle_address: str(),
-    events: arr(
-      obj({
-        type:           str(),
-        actor:          str(),
-        round:          int(),
-        amount:         stroops({ nullable: true }),
-        penalty:        stroops({ nullable: true }),
-        tx_hash:        str(),
-        ledger:         big(),
-        event_position: int(),
-        id:             str(),
-        timestamp:      ts({ nullable: true }),
-      }),
-    ),
+    events: arr(ACTIVITY_EVENT),
     pagination: PAGINATION,
+  },
+  /** GET /circles/:address/activity?cursor= (issue #898) */
+  circleActivityCursor: {
+    circle_address: str(),
+    events: arr(ACTIVITY_EVENT),
+    pagination: CURSOR_PAGINATION,
   },
 } satisfies Record<string, IndexerObjectSchema>;
 
@@ -384,6 +421,10 @@ function checkField(
     case "stroops":
       if (typeof value !== "string") return mismatch("decimal integer string");
       if (!STROOPS_RE.test(value)) return mismatch("decimal integer string", "non-numeric string");
+      return;
+    case "uint_string":
+      if (typeof value !== "string") return mismatch("decimal integer string");
+      if (!UINT_STRING_RE.test(value)) return mismatch("decimal integer string", "non-numeric string");
       return;
     case "bigint":
       if (typeof value === "number") {

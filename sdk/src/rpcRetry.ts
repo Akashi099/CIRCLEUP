@@ -15,6 +15,9 @@
  */
 export function isTransientRpcError(err: unknown): boolean {
   if (err == null) return false;
+  // The caller's deadline or AbortSignal ended the read; retrying would
+  // ignore that decision.
+  if (err instanceof RpcReadCancelledError) return false;
 
   const code =
     typeof err === "object" && err !== null && "code" in err
@@ -103,6 +106,142 @@ export async function withRpcRetry<T>(
   }
 
   throw lastErr;
+}
+
+// ─── Read deadlines and cancellation (issue #899) ─────────────────────────────
+//
+// | Read path                                   | Upper bound                         | Caller cancellation |
+// |---------------------------------------------|-------------------------------------|---------------------|
+// | simulateTransaction (every contract view)   | ReadOptions.timeoutMs, one deadline across all retry attempts and backoff sleeps | ReadOptions.signal |
+// | getTransaction (lookupTransaction)          | same                                | same                |
+// | IndexerClient HTTP reads                    | IndexerRequestOptions.timeoutMs (fetch is aborted) | IndexerRequestOptions.signal |
+// | verifyDeployment                            | VerifyDeploymentOptions.timeoutMs per call | — |
+//
+// The Soroban RPC client does not accept an AbortSignal, so for RPC reads the
+// SDK stops *waiting*: the promise settles immediately, no further retry is
+// scheduled, and a response that arrives later is ignored. The HTTP request
+// already in flight may still complete on the server — harmless for reads.
+//
+// Writes are deliberately not covered: a deadline on a client-side wait never
+// cancels a transaction that has been submitted. See PollConfig for how long
+// confirmation polling waits.
+
+/** Default upper bound, in milliseconds, for one SDK RPC read (all retries included). */
+export const DEFAULT_RPC_READ_TIMEOUT_MS = 20_000;
+
+/** Per-call options accepted by every RPC-backed read method. */
+export interface ReadOptions {
+  /**
+   * Upper bound in milliseconds for the whole read, including transient-error
+   * retries and their backoff. Defaults to the client's read timeout
+   * ({@link DEFAULT_RPC_READ_TIMEOUT_MS} unless changed with
+   * `CircleUpClient.setReadTimeout`).
+   */
+  timeoutMs?: number;
+  /**
+   * Caller cancellation, e.g. when a UI navigates away. When it fires the
+   * read rejects with an {@link RpcReadCancelledError} whose `reason` is
+   * `"aborted"`.
+   */
+  signal?: AbortSignal;
+}
+
+/** Why an RPC read stopped before it produced a result. */
+export type RpcReadCancelReason = "timeout" | "aborted";
+
+/**
+ * Thrown (or carried in a read's failure result) when an RPC read was ended
+ * by its deadline or by the caller's AbortSignal — never by the remote side.
+ * Branch on `reason` instead of parsing the message. A read never changes
+ * on-chain state, so stopping one cancels nothing on the network.
+ */
+export class RpcReadCancelledError extends Error {
+  readonly reason: RpcReadCancelReason;
+  /** The read that was stopped, e.g. `"simulateTransaction(read)"`. */
+  readonly operation: string;
+
+  constructor(operation: string, reason: RpcReadCancelReason, timeoutMs?: number) {
+    super(
+      reason === "timeout"
+        ? `${operation} did not complete within ${timeoutMs} ms; the SDK stopped waiting. ` +
+            "No on-chain state was changed."
+        : `${operation} was cancelled by the caller before it completed. No on-chain state was changed.`,
+    );
+    this.name = "RpcReadCancelledError";
+    this.reason = reason;
+    this.operation = operation;
+  }
+}
+
+/** `true` when `err` is an {@link RpcReadCancelledError}. */
+export function isRpcReadCancelled(err: unknown): err is RpcReadCancelledError {
+  return err instanceof RpcReadCancelledError;
+}
+
+/**
+ * Run an RPC read through {@link withRpcRetry} under one deadline and an
+ * optional caller signal.
+ *
+ * - Already-aborted signal → rejects before `fn` is called.
+ * - Deadline / abort mid-attempt → rejects at once; the attempt's late result
+ *   (or error) is ignored.
+ * - Deadline / abort during a backoff sleep → rejects at once; no further
+ *   attempt starts.
+ * - The timer and the abort listener are always removed on settle.
+ *
+ * Exported for unit testing.
+ */
+export async function withRpcReadDeadline<T>(
+  label: string,
+  fn: () => Promise<T>,
+  options: { timeoutMs: number; signal?: AbortSignal },
+  maxAttempts = 3,
+  baseDelayMs = 400,
+): Promise<T> {
+  const { timeoutMs, signal } = options;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new RangeError(`${label}: timeoutMs must be a positive, finite number of milliseconds.`);
+  }
+  if (signal?.aborted) throw new RpcReadCancelledError(label, "aborted");
+
+  let stopped: RpcReadCancelledError | null = null;
+  let rejectStop: (err: RpcReadCancelledError) => void = () => {};
+  const stop = new Promise<never>((_resolve, reject) => {
+    rejectStop = reject;
+  });
+  stop.catch(() => {}); // settled races must not surface as unhandled rejections
+  const halt = (err: RpcReadCancelledError) => {
+    if (stopped) return;
+    stopped = err;
+    rejectStop(err);
+  };
+
+  const timer = setTimeout(() => halt(new RpcReadCancelledError(label, "timeout", timeoutMs)), timeoutMs);
+  const onAbort = () => halt(new RpcReadCancelledError(label, "aborted"));
+  signal?.addEventListener("abort", onAbort, { once: true });
+
+  const attempt = (): Promise<T> => {
+    if (stopped) return Promise.reject(stopped);
+    const pending = fn();
+    pending.catch(() => {}); // a late failure after the deadline is ignored
+    return Promise.race([pending, stop]);
+  };
+  const sleep = (ms: number): Promise<void> => {
+    let id: ReturnType<typeof setTimeout> | undefined;
+    const wait = new Promise<void>((resolve) => {
+      id = setTimeout(resolve, ms);
+    });
+    return Promise.race([wait, stop]).finally(() => clearTimeout(id));
+  };
+
+  try {
+    return await withRpcRetry(label, attempt, maxAttempts, baseDelayMs, sleep);
+  } catch (err) {
+    throw stopped ?? err;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
+  }
 }
 
 // ─── Retry safety by operation ────────────────────────────────────────────────

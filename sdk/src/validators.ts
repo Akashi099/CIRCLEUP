@@ -414,6 +414,12 @@ export interface ReadFailure {
   readonly ok: false;
   /** Human-readable description of what went wrong. */
   readonly error: string;
+  /**
+   * Set when the read was stopped locally — by its deadline (`"timeout"`) or
+   * the caller's AbortSignal (`"aborted"`) — rather than failed remotely
+   * (issue #899). Absent for every remote or decoding failure.
+   */
+  readonly cancelled?: "timeout" | "aborted";
 }
 
 /** Discriminated union of possible typed-read outcomes. */

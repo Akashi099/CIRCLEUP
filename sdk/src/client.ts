@@ -23,6 +23,8 @@ import {
   isConfigAbsent,
   isCircleNotActive,
   DEFAULT_INDEXER_TIMEOUT_MS,
+  RpcReadCancelledError,
+  optionalRead,
 } from './circleUpClient';
 import {
   attachMetadata,
@@ -34,6 +36,7 @@ import type {
   WriteOptions,
   CircleFullState,
   CacheEntry,
+  ReadOptions,
 } from './circleUpClient';
 import { Keypair } from '@stellar/stellar-sdk';
 import type { xdr } from '@stellar/stellar-sdk';
@@ -45,6 +48,8 @@ import type {
   ApiHealthResponse, ApiAuditEventsResponse, GetCirclesParams,
   ApiCircleStatus, CircleSortField, IndexerPagination,
   GetMemberContributionsParams, PaginateOptions, FactoryCirclePage,
+  IndexerCursorPagination, CursorPageParams, GetMemberContributionsCursorParams,
+  ApiMemberContributionsCursorResponse, ApiCircleActivityCursorResponse,
 } from './types';
 import {
   validateContractArgs, isValidContractAddress, isValidStellarAddress,
@@ -131,20 +136,22 @@ export class FactoryClient extends CircleUpClient {
     return { result, circleAddress: created };
   }
 
-  async getCircles(): Promise<string[]> {
+  async getCircles(read?: ReadOptions): Promise<string[]> {
     const raw = await this.simulateAndReadOrThrow(
       this.contractId,
       "get_circles",
       [],
+      ...optionalRead(read),
     );
     return decodeAddressList(raw, "getCircles");
   }
 
-  async getCircleCount(): Promise<number> {
+  async getCircleCount(read?: ReadOptions): Promise<number> {
     const raw = await this.simulateAndReadOrThrow(
       this.contractId,
       "get_circle_count",
       [],
+      ...optionalRead(read),
     );
     return decodeU32(raw, "getCircleCount");
   }
@@ -158,12 +165,15 @@ export class FactoryClient extends CircleUpClient {
    *
    * @param cursor Zero-based registry index of the first circle to return.
    * @param limit  Page size, `1..FACTORY_MAX_PAGE_SIZE`.
+   * @param read   Optional deadline / cancellation for this read.
    * @throws `RangeError` before any request on an invalid `cursor` / `limit`;
-   *   `Error` when the contract rejects the cursor (`CursorOutOfRange`, 111).
+   *   `Error` when the contract rejects the cursor (`CursorOutOfRange`, 111);
+   *   {@link RpcReadCancelledError} when the read was stopped locally.
    */
   async getCirclesPaginated(
     cursor = 0,
     limit = FACTORY_MAX_PAGE_SIZE,
+    read?: ReadOptions,
   ): Promise<FactoryCirclePage> {
     if (!Number.isInteger(cursor) || cursor < 0 || cursor > 0xffffffff) {
       throw new RangeError(`getCirclesPaginated: cursor must be a u32, got ${cursor}`);
@@ -177,6 +187,7 @@ export class FactoryClient extends CircleUpClient {
       this.contractId,
       "get_circles_paginated",
       [scU32(cursor), scU32(limit)],
+      ...optionalRead(read),
     );
     return mapRawCirclePage(raw, cursor);
   }
@@ -189,9 +200,12 @@ export class FactoryClient extends CircleUpClient {
    * `undefined` when the walk reached the end, otherwise the bound cut it
    * short. Because the registry is append-only, a later call with
    * `from = resumeCursor` returns exactly the circles not yet seen.
+   *
+   * `options.read` applies to each page read individually; aborting its
+   * signal stops the walk before the next page.
    */
   async getAllCirclesPaged(
-    options: { from?: number; limit?: number; maxPages?: number } = {},
+    options: { from?: number; limit?: number; maxPages?: number; read?: ReadOptions } = {},
   ): Promise<{ circles: string[]; nextCursor: number | undefined; resumeCursor: number }> {
     const limit = options.limit ?? FACTORY_MAX_PAGE_SIZE;
     const maxPages = options.maxPages ?? 20;
@@ -201,7 +215,9 @@ export class FactoryClient extends CircleUpClient {
     const circles: string[] = [];
     let cursor = options.from ?? 0;
     for (let i = 0; i < maxPages; i++) {
-      const page = await this.getCirclesPaginated(cursor, limit);
+      const page = options.read === undefined
+        ? await this.getCirclesPaginated(cursor, limit)
+        : await this.getCirclesPaginated(cursor, limit, options.read);
       circles.push(...page.circles);
       if (page.nextCursor === undefined) {
         return { circles, nextCursor: undefined, resumeCursor: page.total };
@@ -543,11 +559,12 @@ export class CircleClient extends CircleUpClient {
    * For a non-throwing alternative that returns a discriminated union instead
    * of throwing, use {@link getConfigResult}.
    */
-  async getConfig(): Promise<CircleConfig> {
+  async getConfig(read?: ReadOptions): Promise<CircleConfig> {
     const raw = await this.simulateAndReadOrThrow(
       this.circleAddress,
       "get_config",
       [],
+      ...optionalRead(read),
     );
     return mapRawConfig(raw);
   }
@@ -578,11 +595,14 @@ export class CircleClient extends CircleUpClient {
    * if (!r.ok && r.error.toLowerCase().includes("not initialized")) { … }
    * ```
    */
-  async getConfigResult(): Promise<ReadResult<CircleConfig>> {
+  async getConfigResult(read?: ReadOptions): Promise<ReadResult<CircleConfig>> {
     try {
-      const value = await this.getConfig();
+      const value = read === undefined ? await this.getConfig() : await this.getConfig(read);
       return { ok: true, value };
     } catch (err: any) {
+      if (err instanceof RpcReadCancelledError) {
+        return { ok: false, error: err.message, cancelled: err.reason };
+      }
       const raw: string = err?.message ?? "getConfig failed";
       // Normalise the ContractError::NotInitialized code (1) into a clear,
       // consistent message so callers can detect the absent-config case with
@@ -602,11 +622,12 @@ export class CircleClient extends CircleUpClient {
    * **Throws** on simulation failure or unrecognised status.
    * For a non-throwing alternative use {@link getStatusResult}.
    */
-  async getStatus(): Promise<CircleStatus> {
+  async getStatus(read?: ReadOptions): Promise<CircleStatus> {
     const raw = await this.simulateAndReadOrThrow(
       this.circleAddress,
       "get_status",
       [],
+      ...optionalRead(read),
     );
     // Validate the returned string is a known variant before returning it.
     // assertValidCircleStatus throws with a descriptive message if not.
@@ -620,11 +641,14 @@ export class CircleClient extends CircleUpClient {
    * const r = await client.getStatusResult();
    * if (r.ok && r.value === "Active") showContributeButton();
    */
-  async getStatusResult(): Promise<ReadResult<CircleStatus>> {
+  async getStatusResult(read?: ReadOptions): Promise<ReadResult<CircleStatus>> {
     try {
-      const value = await this.getStatus();
+      const value = read === undefined ? await this.getStatus() : await this.getStatus(read);
       return { ok: true, value };
     } catch (err: any) {
+      if (err instanceof RpcReadCancelledError) {
+        return { ok: false, error: err.message, cancelled: err.reason };
+      }
       return { ok: false, error: err?.message ?? "getStatus failed" };
     }
   }
@@ -639,15 +663,18 @@ export class CircleClient extends CircleUpClient {
    *
    * **Throws** on simulation failure or when the circle is not Active/Pending.
    */
-  async getCurrentRound(): Promise<RoundState> {
+  async getCurrentRound(read?: ReadOptions): Promise<RoundState> {
     try {
       const raw = await this.simulateAndReadOrThrow(
         this.circleAddress,
         "get_current_round",
         [],
+        ...optionalRead(read),
       );
       return mapRawRoundState(raw);
     } catch (err: any) {
+      // A local stop must stay distinguishable from a contract error.
+      if (err instanceof RpcReadCancelledError) throw err;
       const raw: string = err?.message ?? "getCurrentRound failed";
       throw new Error(normalizeCircleNotActiveError(raw));
     }
@@ -676,11 +703,14 @@ export class CircleClient extends CircleUpClient {
    * }
    * ```
    */
-  async getCurrentRoundResult(): Promise<ReadResult<RoundState>> {
+  async getCurrentRoundResult(read?: ReadOptions): Promise<ReadResult<RoundState>> {
     try {
-      const value = await this.getCurrentRound();
+      const value = read === undefined ? await this.getCurrentRound() : await this.getCurrentRound(read);
       return { ok: true, value };
     } catch (err: any) {
+      if (err instanceof RpcReadCancelledError) {
+        return { ok: false, error: err.message, cancelled: err.reason };
+      }
       const raw: string = err?.message ?? "getCurrentRound failed";
       // Normalise ContractError::CircleNotActive (code 2) into a clear,
       // consistent message so callers can detect the inactive-circle case
@@ -690,21 +720,23 @@ export class CircleClient extends CircleUpClient {
     }
   }
 
-  async getCollateral(member: string): Promise<bigint> {
+  async getCollateral(member: string, read?: ReadOptions): Promise<bigint> {
     const raw = await this.simulateAndReadOrThrow(
       this.circleAddress,
       "get_collateral",
       [scAddress(member)],
+      ...optionalRead(read),
     );
     // i128 on the wire; the contract clamps penalty deductions at zero.
     return decodeI128(raw, "getCollateral", { min: 0n });
   }
 
-  async getDefaults(member: string): Promise<number> {
+  async getDefaults(member: string, read?: ReadOptions): Promise<number> {
     const raw = await this.simulateAndReadOrThrow(
       this.circleAddress,
       "get_defaults",
       [scAddress(member)],
+      ...optionalRead(read),
     );
     return decodeU32(raw, "getDefaults");
   }
@@ -724,7 +756,7 @@ export class CircleClient extends CircleUpClient {
    * @param member     Stellar public key of the member to check.
    * @param roundIndex Zero-based round index to query.
    */
-  async hasContributed(member: string, roundIndex: number): Promise<boolean> {
+  async hasContributed(member: string, roundIndex: number, read?: ReadOptions): Promise<boolean> {
     const raw = await this.simulateAndReadOrThrow(
       this.circleAddress,
       "has_contributed",
@@ -732,6 +764,7 @@ export class CircleClient extends CircleUpClient {
         scAddress(member),
         scU32(roundIndex),
       ],
+      ...optionalRead(read),
     );
     return decodeBoolean(raw, "hasContributed");
   }
@@ -753,13 +786,16 @@ export class CircleClient extends CircleUpClient {
    *
    * @param member Stellar public key of the member to check.
    */
-  async hasContributedCurrentRound(member: string): Promise<boolean> {
-    const state = await this.getFullState();
+  async hasContributedCurrentRound(member: string, read?: ReadOptions): Promise<boolean> {
+    const state = await this.getFullState(read);
     if (!state.currentRound) {
       // Completed or Cancelled — no active round; member cannot contribute.
       return false;
     }
-    return this.hasContributed(member, state.currentRound.roundIndex);
+    const roundIndex = state.currentRound.roundIndex;
+    return read === undefined
+      ? this.hasContributed(member, roundIndex)
+      : this.hasContributed(member, roundIndex, read);
   }
 
   /**
@@ -787,7 +823,13 @@ export class CircleClient extends CircleUpClient {
    * // Disable caching for a one-off client
    * const client = new CircleClient(config, addr, 0);
    */
-  async getFullState(options?: { forceRefresh?: boolean }): Promise<CircleFullState> {
+  async getFullState(options?: { forceRefresh?: boolean } & ReadOptions): Promise<CircleFullState> {
+    // Each underlying read gets its own deadline; a caller abort stops all of
+    // them and is rethrown as RpcReadCancelledError (nothing is cached).
+    const read: ReadOptions | undefined =
+      options && (options.signal !== undefined || options.timeoutMs !== undefined)
+        ? { signal: options.signal, timeoutMs: options.timeoutMs }
+        : undefined;
     if (!options?.forceRefresh && this.isCacheValid()) {
       return this._stateCache!.state;
     }
@@ -801,10 +843,17 @@ export class CircleClient extends CircleUpClient {
     // error is NOT the not-initialized case, so getFullState never crashes a
     // UI render cycle for a valid but un-configured circle address.
     const [configResult, status] = await Promise.all([
-      this.getConfigResult(),
-      this.getStatus(),
+      read === undefined ? this.getConfigResult() : this.getConfigResult(read),
+      read === undefined ? this.getStatus() : this.getStatus(read),
     ]);
 
+    if (!configResult.ok && configResult.cancelled) {
+      throw new RpcReadCancelledError(
+        `${this.circleAddress}.get_config`,
+        configResult.cancelled,
+        read?.timeoutMs ?? this.readTimeoutMs,
+      );
+    }
     if (!configResult.ok) {
       // Re-throw with a clear message. Callers that want non-throwing behaviour
       // should use getConfigResult() directly; getFullState throwing here
@@ -821,9 +870,18 @@ export class CircleClient extends CircleUpClient {
     // propagating the contract's CircleNotActive error.
     let currentRound: RoundState | null = null;
     if (status === "Active" || status === "Pending") {
-      const roundResult = await this.getCurrentRoundResult();
+      const roundResult = read === undefined
+        ? await this.getCurrentRoundResult()
+        : await this.getCurrentRoundResult(read);
       if (roundResult.ok) {
         currentRound = roundResult.value;
+      } else if (roundResult.cancelled) {
+        // Do not cache a state whose round was never actually read.
+        throw new RpcReadCancelledError(
+          `${this.circleAddress}.get_current_round`,
+          roundResult.cancelled,
+          read?.timeoutMs ?? this.readTimeoutMs,
+        );
       }
       // If the round fetch fails despite being in an active-ish state we leave
       // currentRound as null — callers must guard on it, and the gate layer
@@ -971,11 +1029,12 @@ export class ReputationClient extends CircleUpClient {
     return this.config.contracts.reputation;
   }
 
-  async getScore(member: string): Promise<number> {
+  async getScore(member: string, read?: ReadOptions): Promise<number> {
     const raw = await this.simulateAndReadOrThrow(
       this.contractId,
       "score",
       [scAddress(member)],
+      ...optionalRead(read),
     );
     return decodeU32(raw, "getScore");
   }
@@ -1270,6 +1329,50 @@ function buildContributionsQuery(
   };
 }
 
+/** Longest cursor token the SDK forwards (mirrors the indexer's bound). */
+const MAX_CURSOR_LENGTH = 512;
+
+/**
+ * Validate the cursor-page parameters shared by the keyset history reads and
+ * build their query. A missing/`null` cursor is sent as `cursor=` (start a
+ * new keyset scan) so the server always answers with a cursor envelope.
+ */
+function buildCursorQuery(
+  method: string,
+  params: GetMemberContributionsCursorParams | undefined,
+  allowed: readonly string[],
+): { query: string; limit?: number } {
+  const check = new QueryProblems(method);
+  const o = check.options(params, allowed);
+  if (o.circle !== undefined && !isValidStellarAddress(o.circle)) {
+    check.add(
+      `circle must be a Stellar address (G… or C…, 56 characters), got ${describeOption(o.circle)}.`,
+    );
+  }
+  if (
+    o.cursor !== undefined &&
+    o.cursor !== null &&
+    (typeof o.cursor !== "string" ||
+      o.cursor === "" ||
+      o.cursor.length > MAX_CURSOR_LENGTH ||
+      !/^[A-Za-z0-9_-]+$/.test(o.cursor))
+  ) {
+    check.add("cursor must be a nextCursor value returned by the indexer, or omitted to start a scan.");
+  }
+  check.integer("limit", o.limit, 1, INDEXER_MAX_PAGE_SIZE);
+  check.throwIfAny();
+
+  const limit = o.limit as number | undefined;
+  return {
+    query: toQuery({
+      circle: o.circle as string | undefined,
+      cursor: (o.cursor as string | null | undefined) ?? "",
+      limit,
+    }),
+    limit,
+  };
+}
+
 /** Validate {@link PaginateOptions} and return the effective page bound. */
 function resolveMaxPages(method: string, options: PaginateOptions | undefined): number {
   const check = new QueryProblems(method);
@@ -1433,6 +1536,80 @@ export class IndexerClient {
       fail(`${(items as unknown[]).length} rows exceed the page limit of ${pagination.limit}.`);
     }
     return body;
+  }
+
+  /**
+   * Fetch one keyset page and check its cursor envelope (issue #898): the item
+   * list must fit the page size, `hasMore` must agree with `nextCursor`, and
+   * an explicit `limit` must be echoed back.
+   */
+  private async getCursorPage<T extends { pagination: IndexerCursorPagination }>(
+    path: string,
+    itemsKey: keyof T & string,
+    requestedLimit: number | undefined,
+    options?: IndexerRequestOptions,
+  ): Promise<T> {
+    const { body, status, url } = await this.request<T>(path, options);
+    const fail = (problem: string): never => {
+      throw new IndexerError(
+        `Indexer response from ${url} has an invalid cursor envelope: ${problem}`,
+        status,
+        url,
+        "schema",
+      );
+    };
+
+    if (body === null || typeof body !== "object") fail("the body is not an object.");
+    const items = (body as Record<string, unknown>)[itemsKey];
+    if (!Array.isArray(items)) fail(`"${itemsKey}" is not an array.`);
+    const p = (body as { pagination?: unknown }).pagination as Record<string, unknown> | undefined;
+    if (p === null || typeof p !== "object") fail(`"pagination" metadata is missing.`);
+    const limit: unknown = p!.limit;
+    const hasMore: unknown = p!.hasMore;
+    const nextCursor: unknown = p!.nextCursor;
+    if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1) fail("limit is malformed.");
+    if (typeof hasMore !== "boolean") fail("hasMore is malformed.");
+    if (nextCursor !== null && typeof nextCursor !== "string") fail("nextCursor is malformed.");
+    if (hasMore !== (nextCursor !== null)) {
+      fail("hasMore and nextCursor disagree.");
+    }
+    if (requestedLimit !== undefined && limit !== requestedLimit) {
+      fail(`requested limit ${requestedLimit} but the server applied ${String(limit)}.`);
+    }
+    if ((items as unknown[]).length > (limit as number)) {
+      fail(`${(items as unknown[]).length} rows exceed the page limit of ${String(limit)}.`);
+    }
+    return body;
+  }
+
+  /**
+   * Follow `nextCursor` from `first`, yielding each page, until the final page
+   * or `maxPages` pages. A server that hands back the cursor it was just given
+   * would loop forever, so that is reported as a schema error.
+   */
+  private async *paginateByCursor<T extends { pagination: IndexerCursorPagination }>(
+    method: string,
+    start: string | null | undefined,
+    options: PaginateOptions | undefined,
+    fetchPage: (cursor: string | null) => Promise<T>,
+  ): AsyncGenerator<T, void, undefined> {
+    const maxPages = resolveMaxPages(method, options);
+    let cursor: string | null = start ?? null;
+    for (let fetched = 0; fetched < maxPages; fetched++) {
+      const response = await fetchPage(cursor);
+      yield response;
+      const next = response.pagination.nextCursor;
+      if (next === null) return;
+      if (next === cursor) {
+        throw new IndexerError(
+          `${method}: the indexer returned the same cursor twice; stopping to avoid an endless scan.`,
+          200,
+          "",
+          "schema",
+        );
+      }
+      cursor = next;
+    }
   }
 
   /**
@@ -1799,6 +1976,99 @@ export class IndexerClient {
       paginate,
       (r) => r.contributions,
       (p) => this.getMemberContributions(member, { ...options, page: p }),
+    );
+  }
+
+  /**
+   * Fetch one **keyset page** of a member's contribution history, newest
+   * first (issue #898).
+   *
+   * Pass the previous page's `pagination.nextCursor` as `cursor` to continue;
+   * omit it to start. Unlike {@link getMemberContributions}, pages never shift
+   * when contributions are indexed between requests, and deep pages cost the
+   * same as the first. The response has no `total` — the server skips the
+   * COUNT(*) — but keeps `totalAmount`.
+   *
+   * Equivalent to `GET /members/:member/contributions?cursor=…`.
+   *
+   * @throws `RangeError` before any request on an unknown option key, an
+   *   invalid `circle` / `limit`, or a value that cannot be a cursor.
+   * @throws {@link IndexerError} on an HTTP/network failure (HTTP 400 for a
+   *   cursor the indexer rejects — restart the scan without one), or when the
+   *   cursor envelope is malformed.
+   */
+  async getMemberContributionsByCursor(
+    member: string,
+    params?: GetMemberContributionsCursorParams,
+    requestOptions?: IndexerRequestOptions,
+  ): Promise<ApiMemberContributionsCursorResponse> {
+    const { query, limit } = buildCursorQuery("getMemberContributionsByCursor", params, ["circle", "cursor", "limit"]);
+    return this.getCursorPage<ApiMemberContributionsCursorResponse>(
+      `/members/${encodeURIComponent(member)}/contributions${query}`,
+      "contributions",
+      limit,
+      requestOptions,
+    );
+  }
+
+  /**
+   * Walk a member's contribution history by cursor, yielding each page.
+   * Bounded by `paginate.maxPages` (default 10, max 1000); resume a cut-short
+   * scan with the last page's `nextCursor`.
+   */
+  iterateMemberContributionsByCursor(
+    member: string,
+    params?: GetMemberContributionsCursorParams,
+    paginate?: PaginateOptions,
+  ): AsyncGenerator<ApiMemberContributionsCursorResponse, void, undefined> {
+    buildCursorQuery("iterateMemberContributionsByCursor", params, ["circle", "cursor", "limit"]);
+    resolveMaxPages("iterateMemberContributionsByCursor", paginate);
+    return this.paginateByCursor(
+      "iterateMemberContributionsByCursor",
+      params?.cursor,
+      paginate,
+      (cursor) => this.getMemberContributionsByCursor(member, { ...params, cursor }),
+    );
+  }
+
+  /**
+   * Fetch one **keyset page** of a circle's activity feed, oldest first
+   * (ledger, event position, row id) — issue #898.
+   *
+   * Events indexed between requests sort after the cursor and appear on a
+   * later page, so a scan never duplicates or skips an event.
+   *
+   * Equivalent to `GET /circles/:address/activity?cursor=…`.
+   *
+   * @throws `RangeError` / {@link IndexerError} as {@link getMemberContributionsByCursor}.
+   */
+  async getCircleActivityByCursor(
+    address: string,
+    params?: CursorPageParams,
+    requestOptions?: IndexerRequestOptions,
+  ): Promise<ApiCircleActivityCursorResponse> {
+    const { query, limit } = buildCursorQuery("getCircleActivityByCursor", params, ["cursor", "limit"]);
+    return this.getCursorPage<ApiCircleActivityCursorResponse>(
+      `/circles/${encodeURIComponent(address)}/activity${query}`,
+      "events",
+      limit,
+      requestOptions,
+    );
+  }
+
+  /** Walk a circle's activity feed by cursor; bounded like {@link iterateMemberContributionsByCursor}. */
+  iterateCircleActivityByCursor(
+    address: string,
+    params?: CursorPageParams,
+    paginate?: PaginateOptions,
+  ): AsyncGenerator<ApiCircleActivityCursorResponse, void, undefined> {
+    buildCursorQuery("iterateCircleActivityByCursor", params, ["cursor", "limit"]);
+    resolveMaxPages("iterateCircleActivityByCursor", paginate);
+    return this.paginateByCursor(
+      "iterateCircleActivityByCursor",
+      params?.cursor,
+      paginate,
+      (cursor) => this.getCircleActivityByCursor(address, { ...params, cursor }),
     );
   }
 

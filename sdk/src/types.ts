@@ -83,6 +83,11 @@ export interface SimulateFailure {
   readonly ok: false;
   /** Raw error string from the Soroban simulation response. */
   readonly error: string;
+  /**
+   * Set when the simulation was stopped locally by its deadline or the
+   * caller's AbortSignal instead of failing remotely (issue #899).
+   */
+  readonly cancelled?: "timeout" | "aborted";
 }
 
 /** Discriminated union of possible `simulateAndRead` outcomes. */
@@ -662,7 +667,11 @@ export interface ApiCircleRow {
   status: ApiCircleStatus;
   current_round: number;
   total_rounds: number;
-  created_ledger: number | string;
+  /**
+   * Ledger the circle was created in. Persisted BIGINT → always a decimal
+   * string on the wire (issue #897; previously typed `number | string`).
+   */
+  created_ledger: string;
   updated_at: string;
   /**
    * Only present in the single-circle detail response
@@ -671,8 +680,11 @@ export interface ApiCircleRow {
    * data is unavailable.
    */
   deadline_ledger?: number | null;
-  /** Round deadline window, in ledgers (sourced from the contract config). */
-  round_deadline_ledgers?: number | string | null;
+  /**
+   * Round deadline window, in ledgers (sourced from the contract config).
+   * Persisted BIGINT → decimal string on the wire.
+   */
+  round_deadline_ledgers?: string | null;
 }
 
 /**
@@ -784,8 +796,13 @@ export interface ApiRoundRow {
   amount: string | null;
   /** Payout transaction hash; `null` until the round is paid out. */
   txHash: string | null;
-  /** Ledger sequence of the payout; `null` until the round is paid out. */
-  ledger?: number | string | null;
+  /**
+   * Ledger sequence of the payout (persisted BIGINT → decimal string);
+   * `null` until the round is paid out.
+   */
+  ledger?: string | null;
+  /** Computed deadline ledger for this round (JSON integer); `null` when unknown. */
+  deadlineLedger?: number | null;
   contributions: ApiContributionRecord[];
   defaults: ApiDefaultRecord[];
 }
@@ -811,6 +828,14 @@ export interface IndexerPagination {
   totalPages: number;
   /** `page < totalPages`. Sent by `/members/:member/contributions` only. */
   hasMore?: boolean;
+  /**
+   * Opaque keyset continuation token (issue #898), sent by the history
+   * endpoints that support cursor pagination
+   * (`/circles/:address/activity`, `/members/:member/contributions`).
+   * Pass it back as `cursor` to read the next page; `null` on the last page.
+   * Never parse it — its encoding is not part of the contract.
+   */
+  nextCursor?: string | null;
 }
 
 /** Columns `GET /circles` can sort by. */
@@ -897,7 +922,8 @@ export interface ApiCircleDetailResponse {
 /** Response body for GET /circles/:address/members */
 export interface ApiMembersResponse {
   totals?: { memberCount: number; totalCollateral: string; totalContributions: number };
-  roundDeadlineLedgers?: number | string | null;
+  /** Persisted BIGINT → decimal string on the wire. */
+  roundDeadlineLedgers?: string | null;
   members: ApiMemberRow[];
 }
 
@@ -1017,6 +1043,81 @@ export interface ApiMemberContributionsResponse {
    */
   totalAmount?: string;
   pagination: IndexerPagination;
+}
+
+// ─── Cursor (keyset) pagination — issue #898 ──────────────────────────────────
+//
+// `/members/:member/contributions` and `/circles/:address/activity` accept an
+// opaque `cursor` in addition to `page`. A cursor scan continues strictly
+// after the last row of the previous page using the endpoint's full, unique
+// sort key, so rows inserted between requests never shift a page and no row
+// that existed when the scan started is duplicated or skipped. See
+// docs/INDEXER_API_COMPATIBILITY.md ("Cursor pagination") for the ordering
+// and mutation model of each endpoint. The page-based methods are unchanged.
+
+/** Envelope of a cursor page. Cursor pages skip COUNT(*), so there is no `total`. */
+export interface IndexerCursorPagination {
+  /** Page size the server applied. */
+  limit: number;
+  /** `true` when another page follows; then `nextCursor` is non-null. */
+  hasMore: boolean;
+  /** Opaque token for the next page; `null` on the final page. Never parse it. */
+  nextCursor: string | null;
+}
+
+/** Parameters shared by the cursor-paged history reads. */
+export interface CursorPageParams {
+  /**
+   * `nextCursor` from the previous page. Omit (or pass `null`) to start a new
+   * scan at the first row. A cursor is bound to the endpoint and filters it
+   * was issued for; the indexer answers HTTP 400 for any other use.
+   */
+  cursor?: string | null;
+  /** Results per page (1–100). Defaults to `20`. */
+  limit?: number;
+}
+
+/** Parameters for {@link IndexerClient.getMemberContributionsByCursor}. */
+export interface GetMemberContributionsCursorParams extends CursorPageParams {
+  /** Restrict results to one circle (a G… or C… address). */
+  circle?: string;
+}
+
+/** Response body for GET /members/:member/contributions?cursor= */
+export interface ApiMemberContributionsCursorResponse {
+  member: string;
+  circle: string | null;
+  /** Newest first: ledger DESC, round_index DESC, created_at DESC, id DESC. */
+  contributions: ApiMemberContributionRow[];
+  /** Sum of `amount` over every matching row (not just this page), in stroops. */
+  totalAmount?: string;
+  pagination: IndexerCursorPagination;
+}
+
+/** One event from GET /circles/:address/activity. */
+export interface ApiCircleActivityEvent {
+  type: string;
+  actor: string;
+  round: number;
+  /** Stroops (decimal string) for contributions and payouts; otherwise `null`. */
+  amount: string | null;
+  /** Stroops (decimal string) for defaults; otherwise `null`. */
+  penalty: string | null;
+  tx_hash: string;
+  /** Ledger sequence as a JSON safe integer. */
+  ledger: number;
+  event_position: number;
+  /** Stable row identity (`ledger-position-id`). */
+  id: string;
+  timestamp: string | null;
+}
+
+/** Response body for GET /circles/:address/activity?cursor= */
+export interface ApiCircleActivityCursorResponse {
+  circle_address: string;
+  /** Oldest first: ledger ASC, event_position ASC, id ASC. */
+  events: ApiCircleActivityEvent[];
+  pagination: IndexerCursorPagination;
 }
 
 /** Response body for GET /health */

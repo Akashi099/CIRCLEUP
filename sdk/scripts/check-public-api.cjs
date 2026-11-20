@@ -25,7 +25,7 @@ const REPO_DIR = path.resolve(SDK_DIR, "..");
 const DIST_ENTRY = path.join(SDK_DIR, "dist", "index.d.ts");
 
 /** Exported from client.ts for unit tests only — never part of the root API. */
-const INTERNAL_ONLY = ["isTransientRpcError", "withRpcRetry", "mayHaveReachedServer"];
+const INTERNAL_ONLY = ["isTransientRpcError", "withRpcRetry", "mayHaveReachedServer", "withRpcReadDeadline", "optionalRead"];
 
 /** Markdown and TypeScript files whose `@circleup/sdk` imports are documentation. */
 const DOC_SOURCES = [

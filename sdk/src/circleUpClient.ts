@@ -101,8 +101,24 @@ export { DEFAULT_POLL_CONFIG } from './polling';
 
 
 // --- RPC retry (see sdk/src/rpcRetry.ts) ---------------------------------------
-import { isTransientRpcError, withRpcRetry, mayHaveReachedServer, SEND_MAX_ATTEMPTS } from './rpcRetry';
+import {
+  isTransientRpcError, withRpcRetry, mayHaveReachedServer, SEND_MAX_ATTEMPTS,
+  withRpcReadDeadline, RpcReadCancelledError, DEFAULT_RPC_READ_TIMEOUT_MS,
+} from './rpcRetry';
+import type { ReadOptions } from './rpcRetry';
 export { isTransientRpcError, withRpcRetry, mayHaveReachedServer } from './rpcRetry';
+export {
+  withRpcReadDeadline, RpcReadCancelledError, isRpcReadCancelled, DEFAULT_RPC_READ_TIMEOUT_MS,
+} from './rpcRetry';
+export type { ReadOptions, RpcReadCancelReason } from './rpcRetry';
+
+/**
+ * `[read]` when options were given, otherwise `[]`, so a read without options
+ * reaches the simulation helpers with exactly the arguments it always had.
+ */
+export function optionalRead(read: ReadOptions | undefined): [] | [ReadOptions] {
+  return read === undefined ? [] : [read];
+}
 
 
 /** Outcome of submitting one signed envelope, possibly more than once. */
@@ -533,6 +549,8 @@ export class CircleUpClient {
   protected pollConfig: Required<PollConfig>;
   /** Optional structured-log sink; see {@link setTxLogger}. */
   protected txLogger?: TxLogger;
+  /** Default upper bound for every RPC read; see {@link setReadTimeout}. */
+  protected readTimeoutMs: number = DEFAULT_RPC_READ_TIMEOUT_MS;
 
   constructor(config: CircleUpConfig, pollConfig?: PollConfig) {
     // Validate upfront so callers get a clear message for misconfiguration
@@ -563,6 +581,32 @@ export class CircleUpClient {
   setTxLogger(logger: TxLogger | undefined): this {
     this.txLogger = logger;
     return this;
+  }
+
+  /**
+   * Set the default upper bound, in milliseconds, for every RPC read made by
+   * this client (contract views and {@link lookupTransaction}), including
+   * transient-error retries. Individual calls can override it with
+   * {@link ReadOptions.timeoutMs}. Does not affect writes: confirmation
+   * polling is bounded by {@link PollConfig}. Returns `this` for chaining.
+   *
+   * @throws `RangeError` for a non-positive or non-finite value.
+   */
+  setReadTimeout(timeoutMs: number): this {
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new RangeError("setReadTimeout: timeoutMs must be a positive, finite number of milliseconds.");
+    }
+    this.readTimeoutMs = timeoutMs;
+    return this;
+  }
+
+  /** Resolve the effective deadline for one read, validating an override. */
+  protected readDeadline(read?: ReadOptions): { timeoutMs: number; signal?: AbortSignal } {
+    const timeoutMs = read?.timeoutMs ?? this.readTimeoutMs;
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new RangeError("ReadOptions.timeoutMs must be a positive, finite number of milliseconds.");
+    }
+    return { timeoutMs, signal: read?.signal };
   }
 
   /**
@@ -1097,19 +1141,39 @@ export class CircleUpClient {
    * made after `diagnostics.validUntil` has passed proves the write was never
    * applied.
    *
-   * A read, so transient RPC failures are retried. Never throws.
+   * A read, so transient RPC failures are retried — within one deadline
+   * ({@link ReadOptions.timeoutMs}, default {@link DEFAULT_RPC_READ_TIMEOUT_MS}).
+   * When the deadline passes or `read.signal` fires, the result is
+   * `{ ok: false, cancelled: "timeout" | "aborted" }`: the SDK stopped
+   * *looking*, which says nothing about the transaction — it may still be
+   * applied, so look it up again. Never throws.
    */
-  async lookupTransaction(txHash: string): Promise<ReadResult<TxLookup>> {
+  async lookupTransaction(txHash: string, read?: ReadOptions): Promise<ReadResult<TxLookup>> {
     if (typeof txHash !== "string" || !/^[0-9a-f]{64}$/i.test(txHash)) {
       return {
         ok: false,
         error: `lookupTransaction: ${JSON.stringify(txHash)} is not a transaction hash (64 hex characters).`,
       };
     }
+    let deadline: { timeoutMs: number; signal?: AbortSignal };
+    try {
+      deadline = this.readDeadline(read);
+    } catch (err: any) {
+      return { ok: false, error: `lookupTransaction: ${err?.message ?? "invalid read options"}` };
+    }
     let status: Awaited<ReturnType<typeof this.rpc.getTransaction>>;
     try {
-      status = await withRpcRetry("getTransaction", () => this.rpc.getTransaction(txHash));
+      status = await withRpcReadDeadline("getTransaction", () => this.rpc.getTransaction(txHash), deadline);
     } catch (err: any) {
+      if (err instanceof RpcReadCancelledError) {
+        return {
+          ok: false,
+          cancelled: err.reason,
+          error:
+            `Stopped looking up ${txHash}: ${err.message} ` +
+            "This does not cancel the transaction — it may still be applied; look it up again to learn its outcome.",
+        };
+      }
       return {
         ok: false,
         error: `Failed to look up ${txHash}: ${formatRpcError(err?.message ?? "unknown", this.config.rpcUrl)}`,
@@ -1194,15 +1258,27 @@ export class CircleUpClient {
    * Never throws — every failure is returned as a {@link SimulateFailure} whose
    * `error` string has already been through {@link extractSimulationError}, so
    * a contract panic reads the same here as it does on the write path.
+   *
+   * Bounded by one deadline across all retry attempts (`read.timeoutMs`, or
+   * the client's {@link setReadTimeout} default) and cancellable through
+   * `read.signal`; either sets `cancelled` on the failure (issue #899).
    */
   protected async simulateAndRead(
     contractId: string,
     method: string,
     args: xdr.ScVal[],
+    ...options: [read?: ReadOptions]
   ): Promise<SimulateResult> {
+    const read = options[0];
     const invalid = validateInvocation(contractId, method, args);
     if (invalid) {
       return { ok: false, error: `Invalid call: ${invalid}` };
+    }
+    let deadline: { timeoutMs: number; signal?: AbortSignal };
+    try {
+      deadline = this.readDeadline(read);
+    } catch (err: any) {
+      return { ok: false, error: `Invalid call: ${err?.message ?? "invalid read options"}` };
     }
 
     // A read-only simulation is never signed or submitted, so the source
@@ -1228,10 +1304,15 @@ export class CircleUpClient {
 
     let simResult: Awaited<ReturnType<typeof this.rpc.simulateTransaction>>;
     try {
-      simResult = await withRpcRetry("simulateTransaction(read)", () =>
-        this.rpc.simulateTransaction(tx),
+      simResult = await withRpcReadDeadline(
+        "simulateTransaction(read)",
+        () => this.rpc.simulateTransaction(tx),
+        deadline,
       );
     } catch (err: any) {
+      if (err instanceof RpcReadCancelledError) {
+        return { ok: false, cancelled: err.reason, error: err.message };
+      }
       return {
         ok: false,
         error: `Simulation network error: ${formatRpcError(err?.message ?? "unknown", this.config.rpcUrl)}`,
@@ -1285,9 +1366,19 @@ export class CircleUpClient {
     contractId: string,
     method: string,
     args: xdr.ScVal[],
+    ...options: [read?: ReadOptions]
   ): Promise<unknown> {
-    const result = await this.simulateAndRead(contractId, method, args);
+    const read = options[0];
+    const result = await this.simulateAndRead(contractId, method, args, ...optionalRead(read));
     if (!result.ok) {
+      // A local stop is not a contract failure: keep it distinguishable.
+      if (result.cancelled) {
+        throw new RpcReadCancelledError(
+          `${contractId}.${method}`,
+          result.cancelled,
+          read?.timeoutMs ?? this.readTimeoutMs,
+        );
+      }
       throw new Error(
         `Contract call ${contractId}.${method} failed: ${result.error}`,
       );

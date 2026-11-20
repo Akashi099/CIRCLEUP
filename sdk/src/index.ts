@@ -10,7 +10,11 @@
 //   Clients        CircleUpClient (top-level facade), FactoryClient,
 //                  CircleClient, ReputationClient, IndexerClient
 //   Errors         GateError, IndexerError (invalid indexer query options
-//                  reject locally with a RangeError before any request)
+//                  reject locally with a RangeError before any request),
+//                  RpcReadCancelledError (an RPC read stopped by its deadline
+//                  or the caller's AbortSignal — see ReadOptions)
+//   Wallets        WalletAdapter, signWithWalletAdapter — optional provider
+//                  boundary for SDK-assisted signing (no browser globals)
 //   Recovery       isRetryable, CircleUpClient.lookupTransaction,
 //                  SubmissionDiagnostics, TxLookup
 //   Config & types CircleUpConfig, NetworkConfig, NetworkName, CircleStatus,
@@ -55,6 +59,10 @@ export {
   // Defaults
   DEFAULT_POLL_CONFIG,
   DEFAULT_FULL_STATE_CACHE_TTL_MS,
+  DEFAULT_RPC_READ_TIMEOUT_MS,
+  // Read deadlines & cancellation (issue #899)
+  RpcReadCancelledError,
+  isRpcReadCancelled,
   // Low-level ScVal encoders
   scAddress,
   scU32,
@@ -65,6 +73,8 @@ export {
 
 export type {
   PollConfig,
+  ReadOptions,
+  RpcReadCancelReason,
   WriteOptions,
   TxLogPhase,
   TxLogEvent,
@@ -94,6 +104,20 @@ export type {
   PreflightFresh,
   PreflightStale,
 } from "./client";
+
+// Optional wallet-provider boundary (issue #904) — types and pre-sign checks
+// only; no browser globals or wallet dependency, so server imports stay safe.
+export { signWithWalletAdapter, requireWalletCapability, walletFailure } from "./walletAdapter";
+export type {
+  WalletAdapter,
+  WalletCapability,
+  WalletCapabilityReport,
+  WalletFailure,
+  WalletFailureReason,
+  WalletResult,
+  WalletSignOptions,
+  SignWithWalletOptions,
+} from "./walletAdapter";
 
 export { transactionSupport } from "./support";
 export type { SupportSummary } from "./support";

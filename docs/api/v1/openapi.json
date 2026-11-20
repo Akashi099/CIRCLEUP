@@ -1201,7 +1201,7 @@
     "/members/{member}/contributions": {
       "get": {
         "operationId": "memberContributions8",
-        "description": "Newest first: ledger DESC, round_index DESC, created_at DESC, id DESC. totalAmount covers all pages. Missing member yields empty page; unknown circle filter is 404.",
+        "description": "Newest first: ledger DESC, round_index DESC, created_at DESC, id DESC. totalAmount covers all pages. Missing member yields empty page; unknown circle filter is 404. Pass cursor (empty to start, or a previous nextCursor) for a keyset scan that never shifts when rows are inserted; it cannot be combined with page and returns a CursorPagination envelope.",
         "parameters": [
           {
             "name": "member",
@@ -1231,6 +1231,17 @@
               "minimum": 1,
               "maximum": 100,
               "default": 20
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Opaque keyset cursor (issue #898). Empty starts a scan; otherwise a nextCursor from the previous page. Invalid, foreign or wrong-version cursors are rejected with 400.",
+            "schema": {
+              "type": "string",
+              "maxLength": 512,
+              "pattern": "^[A-Za-z0-9_-]*$"
             }
           },
           {
@@ -2539,17 +2550,8 @@
                   "type": "integer"
                 },
                 "created_ledger": {
-                  "oneOf": [
-                    {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    {
-                      "type": "string",
-                      "pattern": "^[0-9]+$"
-                    }
-                  ]
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
                 },
                 "updated_at": {
                   "type": "string",
@@ -2561,17 +2563,9 @@
                 "deadline_ledger": {
                   "anyOf": [
                     {
-                      "oneOf": [
-                        {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 9007199254740991
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^[0-9]+$"
-                        }
-                      ]
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
                     },
                     {
                       "type": "null"
@@ -2581,17 +2575,8 @@
                 "round_deadline_ledgers": {
                   "anyOf": [
                     {
-                      "oneOf": [
-                        {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 9007199254740991
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^[0-9]+$"
-                        }
-                      ]
+                      "type": "string",
+                      "pattern": "^[0-9]+$"
                     },
                     {
                       "type": "null"
@@ -2683,17 +2668,8 @@
                 "type": "integer"
               },
               "created_ledger": {
-                "oneOf": [
-                  {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^[0-9]+$"
-                  }
-                ]
+                "type": "string",
+                "pattern": "^[0-9]+$"
               },
               "updated_at": {
                 "type": "string",
@@ -2705,17 +2681,9 @@
               "deadline_ledger": {
                 "anyOf": [
                   {
-                    "oneOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "^[0-9]+$"
-                      }
-                    ]
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
                   },
                   {
                     "type": "null"
@@ -2725,17 +2693,8 @@
               "round_deadline_ledgers": {
                 "anyOf": [
                   {
-                    "oneOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "string",
-                        "pattern": "^[0-9]+$"
-                      }
-                    ]
+                    "type": "string",
+                    "pattern": "^[0-9]+$"
                   },
                   {
                     "type": "null"
@@ -2830,17 +2789,9 @@
           "latestLedger": {
             "anyOf": [
               {
-                "oneOf": [
-                  {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^[0-9]+$"
-                  }
-                ]
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
               },
               {
                 "type": "null"
@@ -2953,17 +2904,8 @@
           "roundDeadlineLedgers": {
             "anyOf": [
               {
-                "oneOf": [
-                  {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^[0-9]+$"
-                  }
-                ]
+                "type": "string",
+                "pattern": "^[0-9]+$"
               },
               {
                 "type": "null"
@@ -3030,17 +2972,8 @@
                 "ledger": {
                   "anyOf": [
                     {
-                      "oneOf": [
-                        {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 9007199254740991
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^[0-9]+$"
-                        }
-                      ]
+                      "type": "string",
+                      "pattern": "^[0-9]+$"
                     },
                     {
                       "type": "null"
@@ -3050,17 +2983,9 @@
                 "deadlineLedger": {
                   "anyOf": [
                     {
-                      "oneOf": [
-                        {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 9007199254740991
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^[0-9]+$"
-                        }
-                      ]
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
                     },
                     {
                       "type": "null"
@@ -3092,17 +3017,8 @@
                         "type": "integer"
                       },
                       "ledger": {
-                        "oneOf": [
-                          {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                          },
-                          {
-                            "type": "string",
-                            "pattern": "^[0-9]+$"
-                          }
-                        ]
+                        "type": "string",
+                        "pattern": "^[0-9]+$"
                       },
                       "created_at": {
                         "type": "string",
@@ -3142,17 +3058,8 @@
                         "type": "string"
                       },
                       "ledger": {
-                        "oneOf": [
-                          {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                          },
-                          {
-                            "type": "string",
-                            "pattern": "^[0-9]+$"
-                          }
-                        ]
+                        "type": "string",
+                        "pattern": "^[0-9]+$"
                       },
                       "created_at": {
                         "type": "string",
@@ -3230,17 +3137,8 @@
                 "ledger": {
                   "anyOf": [
                     {
-                      "oneOf": [
-                        {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 9007199254740991
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^[0-9]+$"
-                        }
-                      ]
+                      "type": "string",
+                      "pattern": "^[0-9]+$"
                     },
                     {
                       "type": "null"
@@ -3250,17 +3148,9 @@
                 "deadlineLedger": {
                   "anyOf": [
                     {
-                      "oneOf": [
-                        {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 9007199254740991
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^[0-9]+$"
-                        }
-                      ]
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
                     },
                     {
                       "type": "null"
@@ -3292,17 +3182,8 @@
                         "type": "integer"
                       },
                       "ledger": {
-                        "oneOf": [
-                          {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                          },
-                          {
-                            "type": "string",
-                            "pattern": "^[0-9]+$"
-                          }
-                        ]
+                        "type": "string",
+                        "pattern": "^[0-9]+$"
                       },
                       "created_at": {
                         "type": "string",
@@ -3342,17 +3223,8 @@
                         "type": "string"
                       },
                       "ledger": {
-                        "oneOf": [
-                          {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                          },
-                          {
-                            "type": "string",
-                            "pattern": "^[0-9]+$"
-                          }
-                        ]
+                        "type": "string",
+                        "pattern": "^[0-9]+$"
                       },
                       "created_at": {
                         "type": "string",
@@ -3404,17 +3276,8 @@
                   "type": "string"
                 },
                 "ledger": {
-                  "oneOf": [
-                    {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    {
-                      "type": "string",
-                      "pattern": "^[0-9]+$"
-                    }
-                  ]
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
                 },
                 "created_at": {
                   "type": "string",
@@ -3479,17 +3342,8 @@
                   "ledger": {
                     "anyOf": [
                       {
-                        "oneOf": [
-                          {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                          },
-                          {
-                            "type": "string",
-                            "pattern": "^[0-9]+$"
-                          }
-                        ]
+                        "type": "string",
+                        "pattern": "^[0-9]+$"
                       },
                       {
                         "type": "null"
@@ -3499,17 +3353,9 @@
                   "deadlineLedger": {
                     "anyOf": [
                       {
-                        "oneOf": [
-                          {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                          },
-                          {
-                            "type": "string",
-                            "pattern": "^[0-9]+$"
-                          }
-                        ]
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
                       },
                       {
                         "type": "null"
@@ -3541,17 +3387,8 @@
                           "type": "integer"
                         },
                         "ledger": {
-                          "oneOf": [
-                            {
-                              "type": "integer",
-                              "minimum": 0,
-                              "maximum": 9007199254740991
-                            },
-                            {
-                              "type": "string",
-                              "pattern": "^[0-9]+$"
-                            }
-                          ]
+                          "type": "string",
+                          "pattern": "^[0-9]+$"
                         },
                         "created_at": {
                           "type": "string",
@@ -3591,17 +3428,8 @@
                           "type": "string"
                         },
                         "ledger": {
-                          "oneOf": [
-                            {
-                              "type": "integer",
-                              "minimum": 0,
-                              "maximum": 9007199254740991
-                            },
-                            {
-                              "type": "string",
-                              "pattern": "^[0-9]+$"
-                            }
-                          ]
+                          "type": "string",
+                          "pattern": "^[0-9]+$"
                         },
                         "created_at": {
                           "type": "string",
@@ -3679,17 +3507,8 @@
                   "type": "string"
                 },
                 "ledger": {
-                  "oneOf": [
-                    {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    {
-                      "type": "string",
-                      "pattern": "^[0-9]+$"
-                    }
-                  ]
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
                 },
                 "created_at": {
                   "type": "string",
@@ -3714,31 +3533,49 @@
             "pattern": "^-?[0-9]+$"
           },
           "pagination": {
-            "type": "object",
-            "properties": {
-              "page": {
-                "type": "integer"
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "page": {
+                    "type": "integer"
+                  },
+                  "limit": {
+                    "type": "integer"
+                  },
+                  "total": {
+                    "type": "integer"
+                  },
+                  "totalPages": {
+                    "type": "integer"
+                  },
+                  "hasMore": {
+                    "type": "boolean"
+                  },
+                  "nextCursor": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Opaque keyset continuation token (issue #898); null on the last page. Never parse it."
+                  }
+                },
+                "required": [
+                  "page",
+                  "limit",
+                  "total",
+                  "totalPages"
+                ],
+                "additionalProperties": true
               },
-              "limit": {
-                "type": "integer"
-              },
-              "total": {
-                "type": "integer"
-              },
-              "totalPages": {
-                "type": "integer"
-              },
-              "hasMore": {
-                "type": "boolean"
+              {
+                "$ref": "#/components/schemas/CursorPagination"
               }
-            },
-            "required": [
-              "page",
-              "limit",
-              "total",
-              "totalPages"
-            ],
-            "additionalProperties": true
+            ]
           }
         },
         "required": [
@@ -3896,17 +3733,8 @@
                 "ledger": {
                   "anyOf": [
                     {
-                      "oneOf": [
-                        {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 9007199254740991
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^[0-9]+$"
-                        }
-                      ]
+                      "type": "string",
+                      "pattern": "^[0-9]+$"
                     },
                     {
                       "type": "null"
@@ -4246,17 +4074,9 @@
         "type": "object",
         "properties": {
           "lastLedger": {
-            "oneOf": [
-              {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 9007199254740991
-              },
-              {
-                "type": "string",
-                "pattern": "^[0-9]+$"
-              }
-            ]
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
           },
           "updatedAt": {
             "type": "string",
@@ -4329,17 +4149,8 @@
         "pattern": "^-?[0-9]+$"
       },
       "Ledger": {
-        "oneOf": [
-          {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          {
-            "type": "string",
-            "pattern": "^[0-9]+$"
-          }
-        ]
+        "type": "string",
+        "pattern": "^[0-9]+$"
       },
       "Pagination": {
         "type": "object",
@@ -4358,6 +4169,17 @@
           },
           "hasMore": {
             "type": "boolean"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque keyset continuation token (issue #898); null on the last page. Never parse it."
           }
         },
         "required": [
@@ -5255,6 +5077,35 @@
           "created_at",
           "recipient",
           "amount"
+        ],
+        "additionalProperties": true
+      },
+      "CursorPagination": {
+        "type": "object",
+        "description": "Envelope of a cursor page (issue #898). COUNT(*) is skipped, so there is no total.",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque keyset continuation token (issue #898); null on the last page. Never parse it."
+          }
+        },
+        "required": [
+          "limit",
+          "hasMore",
+          "nextCursor"
         ],
         "additionalProperties": true
       }
