@@ -32,7 +32,9 @@
  * detect a stuck or lagging indexer before users notice stale data.
  */
 
-import { SorobanRpc, xdr, scValToNative, Contract } from "@stellar/stellar-sdk";
+import * as StellarSdk from "@stellar/stellar-sdk";
+const { xdr, scValToNative, Contract } = StellarSdk;
+const SorobanRpc = (StellarSdk as any).rpc ?? (StellarSdk as any).SorobanRpc;
 import type { MigrationHealth } from "./db/migrate";
 import { query, getPoolStats, PoolSaturationError } from "./db/pool";
 import { isUndefinedTable, summarizeOpenEventFailures } from "./eventFailures";
@@ -46,10 +48,34 @@ export interface ComponentHealth {
   details?: Record<string, unknown>;
 }
 
+export interface LivenessReport {
+  status: "ok" | "error";
+  probe: "liveness";
+  live: boolean;
+  uptimeSeconds: number;
+  timestamp: string;
+  reason?: string;
+}
+
+export interface ReadinessReport {
+  status: "ok" | "degraded" | "error";
+  probe: "readiness";
+  ready: boolean;
+  timestamp: string;
+  dbStatus: "ok" | "degraded" | "error";
+  schemaStatus: "ok" | "degraded" | "error";
+  schemaState?: string;
+  rpcStatus: "ok" | "degraded" | "error";
+  degradedDependencies: string[];
+  reason?: string;
+}
+
 export interface HealthReport {
   status: "ok" | "degraded";
   serviceStatus: "healthy" | "degraded" | "unavailable";
   timestamp: string;
+  liveness: LivenessReport;
+  readiness: ReadinessReport;
   db: ComponentHealth;
   rpc: ComponentHealth;
   indexerLag: ComponentHealth;
@@ -182,7 +208,7 @@ export async function checkDbConnectivity(): Promise<ComponentHealth> {
 
 /** Verify the Soroban RPC is reachable and returns the latest ledger. */
 export async function checkRpcConnectivity(
-  rpc: SorobanRpc.Server,
+  rpc: any,
 ): Promise<ComponentHealth & { latestLedger?: number }> {
   const start = Date.now();
   try {
@@ -409,7 +435,7 @@ interface DbCircleRow {
  * RPC rate limit, or the contract was deployed on a different network).
  */
 async function readOnChainRound(
-  rpc: SorobanRpc.Server,
+  rpc: any,
   circleAddress: string,
 ): Promise<number | null> {
   try {
@@ -485,7 +511,7 @@ async function readOnChainRound(
  * schema/DB state.
  */
 export async function checkContractStateDrift(
-  rpc: SorobanRpc.Server,
+  rpc: any,
   rpcStatus: "ok" | "degraded" | "error",
 ): Promise<ComponentHealth> {
   const start = Date.now();
@@ -594,7 +620,7 @@ export async function runAllHealthChecks({
   usdcAddress,
   cachedMigrationHealth = null,
 }: {
-  rpc: SorobanRpc.Server;
+  rpc: any;
   usdcAddress: string;
   cachedMigrationHealth?: MigrationHealth | null;
 }): Promise<HealthReport> {
@@ -649,10 +675,42 @@ export async function runAllHealthChecks({
       ? latestLedgerForDiagnostics - lastIndexedLedger
       : null;
 
+  const liveness = checkLiveness(false);
+  const schemaState = typeof schema.details?.state === "string" ? (schema.details.state as string) : undefined;
+  const schemaSafe =
+    schema.status !== "error" &&
+    schemaState !== "drifted" &&
+    schemaState !== "uninitialized";
+  const degradedDeps: string[] = [];
+  if (rpcComponent.status !== "ok") degradedDeps.push("rpc");
+  if (db.status === "degraded") degradedDeps.push("db");
+  if (schema.status === "degraded") degradedDeps.push("schema");
+
+  const readiness: ReadinessReport = {
+    status: !dbAvailable || !schemaSafe ? "error" : degradedDeps.length > 0 ? "degraded" : "ok",
+    probe: "readiness",
+    ready: dbAvailable && schemaSafe,
+    timestamp: new Date().toISOString(),
+    dbStatus: db.status,
+    schemaStatus: schema.status,
+    schemaState,
+    rpcStatus: rpcComponent.status,
+    degradedDependencies: degradedDeps,
+    reason: !dbAvailable
+      ? `database unavailable: ${db.error || "connection failed"}`
+      : !schemaSafe
+      ? `unsafe schema state: ${schemaState || schema.error || "unhealthy"}`
+      : degradedDeps.length > 0
+      ? `degraded dependencies: ${degradedDeps.join(", ")}`
+      : undefined,
+  };
+
   return {
     status: overallOk ? "ok" : "degraded",
     serviceStatus,
     timestamp: new Date().toISOString(),
+    liveness,
+    readiness,
     db,
     rpc: rpcComponent,
     indexerLag,
@@ -673,5 +731,121 @@ export async function runAllHealthChecks({
       dbAvailable,
       rpcAvailable,
     },
+  };
+}
+
+/**
+ * Evaluates process liveness without touching external dependencies.
+ * Used for container restart loops prevention (e.g. Kubernetes liveness probe).
+ */
+export function checkLiveness(isShuttingDown = false): LivenessReport {
+  if (isShuttingDown) {
+    return {
+      status: "error",
+      probe: "liveness",
+      live: false,
+      uptimeSeconds: process.uptime(),
+      timestamp: new Date().toISOString(),
+      reason: "indexer process is shutting down",
+    };
+  }
+  return {
+    status: "ok",
+    probe: "liveness",
+    live: true,
+    uptimeSeconds: process.uptime(),
+    timestamp: new Date().toISOString(),
+  };
+}
+
+/**
+ * Evaluates service readiness to serve user traffic.
+ *
+ * Rules (#934):
+ *  - Database unavailable -> ready: false (HTTP 503)
+ *  - Schema unsafe (drifted, uninitialized, unapplied migrations) -> ready: false (HTTP 503)
+ *  - Process shutting down -> ready: false (HTTP 503)
+ *  - Database ok + Schema safe, but RPC down -> ready: true, status: "degraded", degradedDependencies: ["rpc"] (HTTP 200)
+ *    (Allows serving historical read traffic while indexing is paused)
+ */
+export async function checkReadiness(options: {
+  rpc?: any;
+  cachedMigrationHealth?: MigrationHealth | null;
+  isShuttingDown?: boolean;
+} = {}): Promise<ReadinessReport> {
+  const timestamp = new Date().toISOString();
+  if (options.isShuttingDown) {
+    return {
+      status: "error",
+      probe: "readiness",
+      ready: false,
+      timestamp,
+      dbStatus: "error",
+      schemaStatus: "error",
+      rpcStatus: "error",
+      degradedDependencies: [],
+      reason: "indexer process is shutting down",
+    };
+  }
+
+  const [db, schema, rpcCheck] = await Promise.all([
+    checkDbConnectivity(),
+    checkSchemaHealth(options.cachedMigrationHealth),
+    options.rpc ? checkRpcConnectivity(options.rpc) : Promise.resolve({ status: "ok" as const }),
+  ]);
+
+  const dbOk = db.status !== "error";
+  const schemaState = typeof schema.details?.state === "string" ? (schema.details.state as string) : undefined;
+  const schemaSafe =
+    schema.status !== "error" &&
+    schemaState !== "drifted" &&
+    schemaState !== "uninitialized";
+
+  const degradedDeps: string[] = [];
+  if (rpcCheck.status !== "ok") degradedDeps.push("rpc");
+  if (db.status === "degraded") degradedDeps.push("db");
+  if (schema.status === "degraded") degradedDeps.push("schema");
+
+  if (!dbOk) {
+    return {
+      status: "error",
+      probe: "readiness",
+      ready: false,
+      timestamp,
+      dbStatus: db.status,
+      schemaStatus: schema.status,
+      schemaState,
+      rpcStatus: rpcCheck.status,
+      degradedDependencies: degradedDeps,
+      reason: `database unavailable: ${db.error || "connection failed"}`,
+    };
+  }
+
+  if (!schemaSafe) {
+    return {
+      status: "error",
+      probe: "readiness",
+      ready: false,
+      timestamp,
+      dbStatus: db.status,
+      schemaStatus: schema.status,
+      schemaState,
+      rpcStatus: rpcCheck.status,
+      degradedDependencies: degradedDeps,
+      reason: `unsafe schema state: ${schemaState || schema.error || "unhealthy"}`,
+    };
+  }
+
+  return {
+    status: degradedDeps.length > 0 ? "degraded" : "ok",
+    probe: "readiness",
+    ready: true,
+    timestamp,
+    dbStatus: db.status,
+    schemaStatus: schema.status,
+    schemaState,
+    rpcStatus: rpcCheck.status,
+    degradedDependencies: degradedDeps,
+    reason: degradedDeps.length > 0 ? `degraded dependencies: ${degradedDeps.join(", ")}` : undefined,
   };
 }

@@ -65,7 +65,7 @@ import {
   reconcileCircle,
 } from "./circleReconciliation";
 import { groupCircleRounds } from "./groupRounds";
-import { runAllHealthChecks } from "./health";
+import { runAllHealthChecks, checkLiveness, checkReadiness } from "./health";
 import { isUndefinedTable, listOpenEventFailures } from "./eventFailures";
 import { redactAddress } from "./redact";
 import { logApiCorsRejected, logApiRequest, logApiRequestError } from "./logger";
@@ -570,7 +570,23 @@ export function createApp(options: { cachedMigrationHealth?: MigrationHealth | n
   // or errored, so load-balancers and uptime monitors can act on the status
   // code without parsing the body.
 
-  app.get("/health", healthRateLimiter, async (_req: Request, res: Response) => {
+  app.get("/health", healthRateLimiter, async (req: Request, res: Response) => {
+    const probe = req.query.probe;
+    if (probe === "liveness" || probe === "live") {
+      const liveness = checkLiveness(options.isShuttingDown);
+      res.status(liveness.status === "ok" ? 200 : 503).json(liveness);
+      return;
+    }
+    if (probe === "readiness" || probe === "ready") {
+      const readiness = await checkReadiness({
+        rpc,
+        cachedMigrationHealth: options.cachedMigrationHealth ?? null,
+        isShuttingDown: options.isShuttingDown,
+      });
+      res.status(readiness.ready ? 200 : 503).json(readiness);
+      return;
+    }
+
     const report = await runAllHealthChecks({
       rpc,
       usdcAddress: USDC,
@@ -579,6 +595,34 @@ export function createApp(options: { cachedMigrationHealth?: MigrationHealth | n
     res.status(
       report.serviceStatus === "healthy" || report.status === "ok" ? 200 : 503,
     ).json(report);
+  });
+
+  // Dedicated Liveness probe endpoint for orchestrators (Kubernetes / ECS / Docker)
+  app.get("/health/live", healthRateLimiter, (_req: Request, res: Response) => {
+    const liveness = checkLiveness(options.isShuttingDown);
+    res.status(liveness.status === "ok" ? 200 : 503).json(liveness);
+  });
+  app.get("/livez", healthRateLimiter, (_req: Request, res: Response) => {
+    const liveness = checkLiveness(options.isShuttingDown);
+    res.status(liveness.status === "ok" ? 200 : 503).json(liveness);
+  });
+
+  // Dedicated Readiness probe endpoint for orchestrators & load-balancers
+  app.get("/health/ready", healthRateLimiter, async (_req: Request, res: Response) => {
+    const readiness = await checkReadiness({
+      rpc,
+      cachedMigrationHealth: options.cachedMigrationHealth ?? null,
+      isShuttingDown: options.isShuttingDown,
+    });
+    res.status(readiness.ready ? 200 : 503).json(readiness);
+  });
+  app.get("/readyz", healthRateLimiter, async (_req: Request, res: Response) => {
+    const readiness = await checkReadiness({
+      rpc,
+      cachedMigrationHealth: options.cachedMigrationHealth ?? null,
+      isShuttingDown: options.isShuttingDown,
+    });
+    res.status(readiness.ready ? 200 : 503).json(readiness);
   });
 
   // ── Circles ──────────────────────────────────────────────────────────────────

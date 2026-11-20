@@ -7,7 +7,7 @@ dotenv.config();
 // deliberately before ./db/migrate and ./indexer run so a misconfigured
 // deploy fails on boot instead of partway through migrations or polling.
 import { PORT, SHUTDOWN_GRACE_PERIOD_MS, DB_CONNECT_MAX_RETRIES, DB_CONNECT_BASE_DELAY_MS } from "./config";
-import { connectWithRetry, pool } from "./db/pool";
+import { connectWithRetry, pool, closePool } from "./db/pool";
 import { runMigrations, checkMigrationHealth } from "./db/migrate";
 import { startIndexer, stopIndexer } from "./indexer";
 import { createApp } from "./api";
@@ -93,10 +93,10 @@ async function gracefulShutdown(server: Server, signal: string): Promise<void> {
     }
     console.log("[circleup-indexer] HTTP server closed");
 
-    // 3. Release all Postgres connections only after both the poller and the
-    //    HTTP server have stopped issuing queries.
+    // 3. Release all Postgres connections cleanly via closePool only after both
+    //    the poller and the HTTP server have stopped issuing queries.
     shutdownPhase = "pool";
-    await pool.end();
+    await closePool({ signal: abortController.signal });
     console.log("[circleup-indexer] Database pool closed");
 
     shutdownPhase = "complete";

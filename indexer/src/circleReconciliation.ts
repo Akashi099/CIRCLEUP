@@ -579,7 +579,7 @@ if (require.main === module) {
       process.exit(64);
     }
 
-    const { query, pool } = await import("./db/pool");
+    const { query, closePool } = await import("./db/pool");
     const { rpc } = await import("./indexer");
     try {
       const report = await reconcileCircle(address, {
@@ -603,12 +603,13 @@ if (require.main === module) {
           console.log(`  • [${u.failure}] ${u.source}: ${u.error}`);
         }
       }
-      await pool.end();
-      process.exit(report.outcome === "match" ? 0 : report.outcome === "mismatch" ? 1 : 2);
+      process.exitCode = report.outcome === "match" ? 0 : report.outcome === "mismatch" ? 1 : 2;
     } catch (err) {
       console.error("[reconcile:circle] Error:", err);
-      await pool.end();
-      process.exit(2);
+      process.exitCode = 2;
+    } finally {
+      await closePool();
+      process.exit(process.exitCode ?? 0);
     }
   })();
 }

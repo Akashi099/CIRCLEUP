@@ -4,6 +4,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit --module es2022 --moduleResolution bundler",
     "deploy:testnet": "ts-node src/deploy.ts",
+    "deploy:preflight": "ts-node src/deploy-preflight.ts",
     "mainnet:readiness": "ts-node src/mainnet-readiness.ts",
     "seed:demo": "ts-node src/seed-demo.ts",
     "test:seed": "node -r ts-node/register --test src/seed-demo-policy.test.ts",

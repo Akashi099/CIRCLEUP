@@ -43,7 +43,7 @@
  *   - Idempotent: calling prepareReplay(N) twice has the same effect as once.
  */
 
-import { pool, withTransaction } from "./pool";
+import { pool, withTransaction, closePool } from "./pool";
 import { assertLocalDatabase } from "./dbGuard";
 import type { PoolClient } from "pg";
 
@@ -910,7 +910,7 @@ export function formatPreflightReport(p: ReplayPreflightResult): string[] {
 if (require.main === module) {
   (async () => {
     const finish = async (code: number): Promise<never> => {
-      await pool.end();
+      await closePool();
       process.exit(code);
     };
     const args = process.argv.slice(2);
@@ -926,17 +926,17 @@ if (require.main === module) {
       "[--dry-run] [--confirm=<token>] [--json]";
     if (!fromArg && !retryFailed) {
       console.error(usage);
-      process.exit(1);
+      return finish(1);
     }
     if (partial && retryFailed) {
       console.error("[replay] --partial and --retry-failed are mutually exclusive.");
-      process.exit(1);
+      return finish(1);
     }
 
     const fromLedger = fromArg ? Number(fromArg.replace("--from=", "")) : 0;
     if (!Number.isInteger(fromLedger) || fromLedger < 0) {
       console.error(`[replay] --from must be a non-negative integer, got: "${fromArg}"`);
-      process.exit(1);
+      return finish(1);
     }
 
     // Refuse to run against staging or production — this operation wipes tables.
@@ -944,7 +944,7 @@ if (require.main === module) {
       assertLocalDatabase(process.env.DATABASE_URL, "replay");
     } catch (err) {
       console.error(err instanceof Error ? err.message : String(err));
-      process.exit(1);
+      return finish(1);
     }
 
     if (dryRun) {

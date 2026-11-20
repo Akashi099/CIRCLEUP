@@ -43,6 +43,7 @@ import {
   printManifestSummary,
   type ManifestInput,
 } from "./deployment-manifest";
+import { runDeployPreflight } from "./deploy-preflight";
 import { redactSecrets } from "./redact";
 
 // Load scripts/.env
@@ -146,6 +147,27 @@ async function runPreflightChecks(deployerPublicKey: string): Promise<PreflightR
 
   console.log("\n[preflight] Running deployment preflight checks...");
   console.log("  (read-only — no transactions will be submitted)\n");
+
+  // ── 0. Comprehensive network & configuration preflight (#895 / Issue 59) ───
+  const configPreflight = await runDeployPreflight({
+    network: NETWORK,
+    networkPassphrase: NETWORK_PASSPHRASE,
+    rpcUrl: RPC_URL,
+    deployerPublicKey: deployerPublicKey || undefined,
+  });
+
+  if (!configPreflight.ok) {
+    for (const err of configPreflight.errors) {
+      failures.push(err);
+    }
+  } else {
+    console.log(`  ✅ Network configuration verified for: ${configPreflight.configuredFacts.resolvedNetwork}`);
+    if (configPreflight.verifiedFacts.remoteRpcStatus === "verified") {
+      console.log(`  ✅ Live RPC verified: ${configPreflight.configuredFacts.rpcUrl}`);
+    } else if (configPreflight.verifiedFacts.remoteRpcStatus === "unavailable") {
+      console.log(`  ⚠  Live RPC check unavailable (${configPreflight.verifiedFacts.remoteRpcError})`);
+    }
+  }
 
   // ── 1. Network validation ─────────────────────────────────────────────────
 

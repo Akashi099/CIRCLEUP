@@ -54,7 +54,9 @@ import { BACKFILL_MAX_LEDGERS, BACKFILL_MAX_EVENTS, BACKFILL_MAX_PAGES } from ".
  * ingestEventInTx, giving exactly-once semantics across restarts.
  */
 
-import { SorobanRpc, xdr, scValToNative } from "@stellar/stellar-sdk";
+import * as StellarSdk from "@stellar/stellar-sdk";
+const { xdr, scValToNative } = StellarSdk;
+const SorobanRpc = (StellarSdk as any).rpc ?? (StellarSdk as any).SorobanRpc;
 import type { PoolClient } from "pg";
 import { query, withTransaction } from "./db/pool";
 import {
