@@ -441,6 +441,35 @@ export function isReadFailure<T>(r: ReadResult<T>): r is ReadFailure {
   return r.ok === false;
 }
 
+/** Result state classification for contract reads distinguishing confirmed zero vs unavailable. */
+export type StateReadClassification =
+  | "confirmed_zero"
+  | "positive_value"
+  | "uninitialized"
+  | "unavailable";
+
+/**
+ * Distinguishes whether a numeric ReadResult represents a confirmed zero on chain
+ * rather than a failed or unavailable read.
+ */
+export function isConfirmedZero(result: ReadResult<bigint | number>): boolean {
+  return result.ok && result.value === (typeof result.value === "bigint" ? 0n : 0);
+}
+
+/**
+ * Distinguishes whether a ReadResult failed due to uninitialized contract state.
+ */
+export function isReadUninitialized<T>(result: ReadResult<T>): boolean {
+  return !result.ok && result.error.toLowerCase().includes("not initialized");
+}
+
+/**
+ * Distinguishes whether a ReadResult represents state unavailable (uninitialized, inactive, or network/RPC error).
+ */
+export function isStateUnavailable<T>(result: ReadResult<T>): boolean {
+  return !result.ok;
+}
+
 // ─── Raw → domain mapping helpers ────────────────────────────────────────────
 //
 // Extracted from the CircleClient method bodies so they can be unit-tested in

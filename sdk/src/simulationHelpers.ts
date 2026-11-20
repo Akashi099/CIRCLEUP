@@ -607,6 +607,7 @@ export function isConfigAbsent(error: string): boolean {
     lower.includes("not initialized") ||
     lower.includes("notinitialized") ||
     lower.includes("contract error code 1") ||
+    lower.includes("error(contract, #1)") ||
     // Soroban host error for a missing storage entry on a read-only view
     lower.includes("storage(missingvalue)")
   );

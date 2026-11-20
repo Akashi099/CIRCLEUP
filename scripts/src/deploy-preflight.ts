@@ -19,6 +19,11 @@ import * as dotenv from "dotenv";
 import { StrKey, rpc as StellarRpc } from "@stellar/stellar-sdk";
 
 import { validateManifest, type DeploymentManifest } from "./deployment-manifest";
+import {
+  checkTokenAssumptions,
+  type TokenAssumptionReport,
+  type TokenCheckStatus,
+} from "./check-token-assumptions";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -39,7 +44,10 @@ export interface PreflightConfigInput {
   manifestPath?: string;
   strict?: boolean;
   timeoutMs?: number;
-  rpcClient?: { getNetwork: () => Promise<{ passphrase: string; protocolVersion?: number }> };
+  rpcClient?: {
+    getNetwork: () => Promise<{ passphrase: string; protocolVersion?: number | string }>;
+    simulateTransaction?: (tx: any) => Promise<any>;
+  };
 }
 
 export interface ConfiguredFacts {
@@ -59,6 +67,7 @@ export interface VerifiedFacts {
   remoteRpcPassphrase?: string;
   remoteRpcProtocolVersion?: number;
   remoteRpcError?: string;
+  tokenStatus?: TokenCheckStatus;
 }
 
 export interface PreflightReport {
@@ -67,6 +76,7 @@ export interface PreflightReport {
   warnings: string[];
   configuredFacts: ConfiguredFacts;
   verifiedFacts: VerifiedFacts;
+  tokenReport?: TokenAssumptionReport;
   summary: string;
 }
 
@@ -261,9 +271,9 @@ export async function runDeployPreflight(
         manifestConsistencyVerified = false;
       }
 
-      const manifestValidation = validateManifest(manifest, resolvedNetwork, resolvedPassphrase);
-      if (!manifestValidation.valid) {
-        errors.push(`Manifest integrity check failed: ${manifestValidation.error}`);
+      const manifestValidation = validateManifest(manifestPath, resolvedNetwork);
+      if (!manifestValidation.ok) {
+        errors.push(`Manifest integrity check failed: ${manifestValidation.errors.join("; ")}`);
         manifestConsistencyVerified = false;
       }
 
@@ -321,7 +331,12 @@ export async function runDeployPreflight(
       );
 
       remoteRpcPassphrase = networkDetails.passphrase;
-      remoteRpcProtocolVersion = networkDetails.protocolVersion;
+      remoteRpcProtocolVersion =
+        networkDetails.protocolVersion !== undefined
+          ? typeof networkDetails.protocolVersion === "number"
+            ? networkDetails.protocolVersion
+            : parseInt(String(networkDetails.protocolVersion), 10)
+          : undefined;
 
       if (remoteRpcPassphrase === resolvedPassphrase) {
         remoteRpcStatus = "verified";
@@ -349,11 +364,39 @@ export async function runDeployPreflight(
     }
   }
 
+  // 8. Executable USDC token assumption check (Issue #892)
+  let tokenReport: TokenAssumptionReport | undefined;
+  let tokenStatus: TokenCheckStatus | undefined;
+  const usdcAddr = contractAddresses.usdc;
+
+  if (usdcAddr) {
+    tokenReport = await checkTokenAssumptions({
+      tokenAddress: usdcAddr,
+      network: resolvedNetwork,
+      rpcUrl: resolvedRpcUrl,
+      timeoutMs,
+      rpcClient: input.rpcClient?.simulateTransaction ? { simulateTransaction: input.rpcClient.simulateTransaction } : undefined,
+    });
+    tokenStatus = tokenReport.status;
+
+    if (tokenReport.status === "mismatch") {
+      errors.push(...tokenReport.errors);
+    } else if (tokenReport.status === "unavailable") {
+      if (isStrict) {
+        errors.push(`Strict preflight token check failed: ${tokenReport.summary}`);
+      } else {
+        warnings.push(`Token assumptions check unavailable: ${tokenReport.summary}`);
+      }
+    } else if (tokenReport.status === "unverifiable") {
+      warnings.push(`Token assumptions unverifiable on-chain: ${tokenReport.summary}`);
+    }
+  }
+
   const ok = errors.length === 0;
   const summary = ok
-    ? `Preflight passed for network "${resolvedNetwork}" (RPC: ${remoteRpcStatus}, manifest: ${
-        manifestPath ? "verified" : "not present"
-      }).`
+    ? `Preflight passed for network "${resolvedNetwork}" (RPC: ${remoteRpcStatus}, token: ${
+        tokenStatus ?? "unconfigured"
+      }, manifest: ${manifestPath ? "verified" : "not present"}).`
     : `Preflight failed with ${errors.length} error(s) for network "${resolvedNetwork}".`;
 
   return {
@@ -376,7 +419,9 @@ export async function runDeployPreflight(
       remoteRpcPassphrase,
       remoteRpcProtocolVersion,
       remoteRpcError,
+      tokenStatus,
     },
+    tokenReport,
     summary,
   };
 }
@@ -424,6 +469,7 @@ if (require.main === module) {
           console.log(`  └ Reason       : ${report.verifiedFacts.remoteRpcError}`);
         }
         console.log(`[Addresses Valid]: ${report.verifiedFacts.addressTypesValid ? "YES" : "NO"}`);
+        console.log(`[Token Status]   : ${(report.verifiedFacts.tokenStatus ?? "SKIPPED").toUpperCase()}`);
         console.log(`[Manifest Valid] : ${report.verifiedFacts.manifestConsistencyVerified ? "YES" : "NO"}`);
         console.log("\n--------------------------------------------------------");
         if (report.warnings.length > 0) {
