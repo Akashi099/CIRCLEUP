@@ -562,6 +562,43 @@ export function createApp(options: { cachedMigrationHealth?: MigrationHealth | n
   app.use(cors({ ...buildCorsOptions(), exposedHeaders: ["X-Request-ID"] }));
   app.use(express.json());
 
+  // Issue 97: Instrument HTTP requests with bounded route and status-code classes
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const start = Date.now();
+    res.on("finish", () => {
+      const durationMs = Date.now() - start;
+      const path = req.path || "";
+      let routeClass: RouteClass = "other";
+      if (path.startsWith("/health") || path === "/livez" || path === "/readyz") {
+        routeClass = "health";
+      } else if (path === "/metrics") {
+        routeClass = "metrics";
+      } else if (
+        path.endsWith("/export.csv") ||
+        path.endsWith("/rounds") ||
+        path.endsWith("/activity") ||
+        path.endsWith("/members") ||
+        path.includes("/contributions")
+      ) {
+        routeClass = "history";
+      } else if (
+        path === "/circles/summary" ||
+        path.startsWith("/reputation/") ||
+        /^\/circles\/[^/]+$/.test(path)
+      ) {
+        routeClass = "detail";
+      } else if (
+        path === "/circles" ||
+        path.startsWith("/members/") ||
+        path.startsWith("/indexer/")
+      ) {
+        routeClass = "list";
+      }
+      recordHttpRequest(routeClass, res.statusCode, durationMs);
+    });
+    next();
+  });
+
   // cors() calls next(err) for rejected origins instead of sending a response
   // itself — without this handler, Express's default error page would leak a
   // stack trace instead of a clean 403.
@@ -652,6 +689,18 @@ export function createApp(options: { cachedMigrationHealth?: MigrationHealth | n
       isShuttingDown: options.isShuttingDown,
     });
     res.status(readiness.ready ? 200 : 503).json(readiness);
+  });
+
+  // Issue 97: Export bounded indexer pipeline metrics for operations
+  app.get("/metrics", healthRateLimiter, (req: Request, res: Response) => {
+    const format = req.query.format;
+    const accept = req.headers.accept ?? "";
+    if (format === "json" || (!format && accept.includes("application/json") && !accept.includes("text/plain"))) {
+      res.json(getPipelineMetrics());
+      return;
+    }
+    res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+    res.send(formatPrometheusMetrics());
   });
 
   // ── Circles ──────────────────────────────────────────────────────────────────

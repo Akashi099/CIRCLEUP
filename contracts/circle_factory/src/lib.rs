@@ -72,6 +72,7 @@ use soroban_sdk::{
 };
 
 // Circle protocol constants — must match circle contract invariants exactly.
+pub const MIN_MEMBERS: u32 = 2;
 pub const MAX_MEMBERS: u32 = 256;
 pub const MIN_ROUND_DEADLINE_LEDGERS: u32 = 100;
 pub const MAX_ROUND_DEADLINE_LEDGERS: u32 = 1_036_800;
@@ -164,7 +165,7 @@ fn validate_create_inputs(
 ) -> Result<(), FactoryError> {
     // Member count bounds — mirrors circle contract limits exactly.
     let member_count = members.len();
-    if member_count < 2 {
+    if member_count < MIN_MEMBERS {
         return Err(FactoryError::TooFewMembers);
     }
     if member_count > MAX_MEMBERS {
@@ -185,10 +186,10 @@ fn validate_create_inputs(
     // that would overflow i128 in those paths before we pay deploy gas.
     round_amount
         .checked_mul(member_count as i128)
-        .unwrap_or_else(|| panic!("round_amount too large: overflows pot calculation"));
+        .ok_or(FactoryError::PotOverflow)?;
     round_amount
         .checked_mul(PENALTY_BPS)
-        .unwrap_or_else(|| panic!("round_amount too large: overflows penalty calculation"));
+        .ok_or(FactoryError::PenaltyOverflow)?;
 
     // Deadline bounds — must match circle contract's accepted range exactly.
     if round_deadline_ledgers < MIN_ROUND_DEADLINE_LEDGERS {
@@ -670,9 +671,13 @@ mod tests {
         let env = Env::default();
         let s = setup_factory(&env);
         let admin2 = Address::generate(&env);
+        let result = s.client.try_initialize(&admin2, &s.wasm_hash, &Address::generate(&env), &Address::generate(&env));
+        let Err(Ok(sdk_error)) = result else {
+            panic!("expected a typed FactoryError for double initialize");
+        };
         assert_eq!(
-            s.client.try_initialize(&admin2, &s.wasm_hash, &Address::generate(&env), &Address::generate(&env)),
-            Err(Ok(FactoryError::AlreadyInitialized))
+            FactoryError::try_from(sdk_error).expect("must be a typed FactoryError"),
+            FactoryError::AlreadyInitialized
         );
     }
 
@@ -700,8 +705,9 @@ mod tests {
 
         let admin = Address::generate(&env);
         let wh: BytesN<32> = BytesN::from_array(&env, &[0u8; 32]);
-        // Must panic: Initializing flag is already set.
-        client.initialize(&admin, &wh, &Address::generate(&env), &Address::generate(&env));
+        // Must fail: Initializing flag is already set.
+        let result = client.try_initialize(&admin, &wh, &Address::generate(&env), &Address::generate(&env));
+        assert!(result.is_err(), "must fail when Initializing is set");
     }
 
     /// After a failed initialize (reentrancy panic) the Admin key must remain
@@ -1138,9 +1144,10 @@ mod tests {
         let mut m = Vec::new(&env);
         m.push_back(a.clone());
         m.push_back(a);
-        s.client.create_circle(
+        let result = s.client.try_create_circle(
             &Address::generate(&env), &m, &1_000_000i128, &MIN_ROUND_DEADLINE_LEDGERS,
         );
+        assert!(result.is_err(), "duplicate members must fail");
     }
 
     #[test]
@@ -1148,7 +1155,8 @@ mod tests {
         let env = Env::default();
         let s = setup_factory(&env);
         let m = make_members(&env, 2);
-        s.client.create_circle(&Address::generate(&env), &m, &0i128, &MIN_ROUND_DEADLINE_LEDGERS);
+        let result = s.client.try_create_circle(&Address::generate(&env), &m, &0i128, &MIN_ROUND_DEADLINE_LEDGERS);
+        assert!(result.is_err(), "zero round amount must fail");
     }
 
     #[test]
@@ -1156,9 +1164,10 @@ mod tests {
         let env = Env::default();
         let s = setup_factory(&env);
         let m = make_members(&env, 2);
-        s.client.create_circle(
+        let result = s.client.try_create_circle(
             &Address::generate(&env), &m, &1_000_000i128, &(MIN_ROUND_DEADLINE_LEDGERS - 1),
         );
+        assert!(result.is_err(), "deadline below min must fail");
     }
 
     #[test]
@@ -1166,9 +1175,10 @@ mod tests {
         let env = Env::default();
         let s = setup_factory(&env);
         let m = make_members(&env, 2);
-        s.client.create_circle(
+        let result = s.client.try_create_circle(
             &Address::generate(&env), &m, &1_000_000i128, &(MAX_ROUND_DEADLINE_LEDGERS + 1),
         );
+        assert!(result.is_err(), "deadline above max must fail");
     }
 
     // ── Registry integrity: count == circles.len() always ────────────────────
