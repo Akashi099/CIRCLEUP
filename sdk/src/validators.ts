@@ -6,8 +6,8 @@
 //
 // Re-exported from sdk/src/index.ts via types.ts for backward compatibility.
 
+import { networkIdentityErrors } from './constants';
 import type {
-  NetworkPassphrase,
   CircleUpConfig,
   TxMetadata,
   TxMetadataValue,
@@ -64,19 +64,13 @@ export function validateCircleUpConfig(config: unknown): asserts config is Circl
     errors.push(`config.rpcUrl "${cfg.rpcUrl}" does not look like a valid URL.`);
   }
 
-  // networkPassphrase
-  const validPassphrases: NetworkPassphrase[] = [
-    "Test SDF Network ; September 2015",
-    "Public Global Stellar Network ; September 2015",
-  ];
+  // networkPassphrase + network identity (issue #903): the passphrase decides
+  // the network; the name, when given, must agree with it, and a custom
+  // passphrase must be opted into with network: "custom".
   if (!cfg.networkPassphrase || typeof cfg.networkPassphrase !== "string") {
     errors.push("config.networkPassphrase is required. Use TESTNET_PASSPHRASE or MAINNET_PASSPHRASE from @circleup/sdk.");
-  } else if (!validPassphrases.includes(cfg.networkPassphrase as NetworkPassphrase)) {
-    errors.push(
-      `config.networkPassphrase "${cfg.networkPassphrase}" is not recognised. ` +
-        `Expected one of: ${validPassphrases.map((p) => `"${p}"`).join(", ")}.`,
-    );
   }
+  errors.push(...networkIdentityErrors(cfg));
 
   // contracts block
   if (!cfg.contracts || typeof cfg.contracts !== "object") {

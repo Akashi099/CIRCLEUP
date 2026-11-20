@@ -16,7 +16,14 @@
 //   Wallets        WalletAdapter, signWithWalletAdapter — optional provider
 //                  boundary for SDK-assisted signing (no browser globals)
 //   Recovery       isRetryable, CircleUpClient.lookupTransaction,
-//                  SubmissionDiagnostics, TxLookup
+//                  CircleUpClient.waitForTransaction, SubmissionDiagnostics,
+//                  TxLookup, RETRY_POLICY (stage-by-stage retry rules)
+//   Lifecycle      txLifecycleFromResult, txLifecycleFromLookup, TxLifecycle —
+//                  submitted / pending / confirmed / failed / unavailable
+//   Error taxonomy SdkError, classifySdkError, classifyTxFailure,
+//                  classifyWalletFailure, SdkErrorCode, SdkErrorStage
+//   Network        resolveNetworkIdentity, NetworkIdentity,
+//                  CircleUpClient.getNetworkIdentity / getResolvedConfig
 //   Config & types CircleUpConfig, NetworkConfig, NetworkName, CircleStatus,
 //                  CircleConfig, RoundState, CircleFullState, and the indexer
 //                  response types (ApiCircleRow, ApiCircleDetailResponse, …)
@@ -63,6 +70,9 @@ export {
   // Read deadlines & cancellation (issue #899)
   RpcReadCancelledError,
   isRpcReadCancelled,
+  // Stage-by-stage retry policy (issue #900)
+  RETRY_POLICY,
+  classifyRpcFailure,
   // Low-level ScVal encoders
   scAddress,
   scU32,
@@ -75,6 +85,9 @@ export type {
   PollConfig,
   ReadOptions,
   RpcReadCancelReason,
+  RetryStage,
+  RetryPolicy,
+  RpcFailureClass,
   WriteOptions,
   TxLogPhase,
   TxLogEvent,
@@ -121,3 +134,26 @@ export type {
 
 export { transactionSupport } from "./support";
 export type { SupportSummary } from "./support";
+
+// Stable error taxonomy (issue #901).
+export {
+  SdkError,
+  isSdkError,
+  classifySdkError,
+  classifyTxFailure,
+  classifyWalletFailure,
+} from "./errors";
+export type { SdkErrorCode, SdkErrorStage, SdkErrorInfo, SdkRetryAdvice } from "./errors";
+
+// Transaction lifecycle and finality (issue #902).
+export { txLifecycleFromResult, txLifecycleFromLookup, isTxLifecycleSettled } from "./lifecycle";
+export type {
+  TxLifecycle,
+  TxLifecycleState,
+  TxNotApplied,
+  TxSubmitted,
+  TxPending,
+  TxConfirmed,
+  TxChainFailed,
+  TxUnavailable,
+} from "./lifecycle";

@@ -42,7 +42,8 @@ import type {
   GetMemberContributionsParams,
   PaginateOptions,
 } from "./types";
-import { INDEXER_MAX_PAGE_SIZE } from "./constants";
+import { INDEXER_MAX_PAGE_SIZE, resolveNetworkIdentity, getExplorerLink } from "./constants";
+import type { NetworkIdentity, ExplorerEntityType } from "./constants";
 import {
   validateCircleUpConfig,
   isValidContractAddress,
@@ -102,15 +103,16 @@ export { DEFAULT_POLL_CONFIG } from './polling';
 
 // --- RPC retry (see sdk/src/rpcRetry.ts) ---------------------------------------
 import {
-  isTransientRpcError, withRpcRetry, mayHaveReachedServer, SEND_MAX_ATTEMPTS,
-  withRpcReadDeadline, RpcReadCancelledError, DEFAULT_RPC_READ_TIMEOUT_MS,
+  isTransientRpcError, withRpcRetry, mayHaveReachedServer,
+  withRpcReadDeadline, RpcReadCancelledError, DEFAULT_RPC_READ_TIMEOUT_MS, RETRY_POLICY,
 } from './rpcRetry';
 import type { ReadOptions } from './rpcRetry';
 export { isTransientRpcError, withRpcRetry, mayHaveReachedServer } from './rpcRetry';
 export {
   withRpcReadDeadline, RpcReadCancelledError, isRpcReadCancelled, DEFAULT_RPC_READ_TIMEOUT_MS,
 } from './rpcRetry';
-export type { ReadOptions, RpcReadCancelReason } from './rpcRetry';
+export { RETRY_POLICY, classifyRpcFailure } from './rpcRetry';
+export type { ReadOptions, RpcReadCancelReason, RetryStage, RetryPolicy, RpcFailureClass } from './rpcRetry';
 
 /**
  * `[read]` when options were given, otherwise `[]`, so a read without options
@@ -417,6 +419,11 @@ export interface TxLogEvent {
   readonly estimate?: SimulationEstimate;
   /** Caller correlation metadata (already sanitised), when supplied. */
   readonly metadata?: TxMetadata;
+  /**
+   * Network the client is bound to (issue #903) — `"testnet"`, `"mainnet"`, or
+   * `"custom"`. Log-safe: the passphrase and RPC URL are not included.
+   */
+  readonly network?: NetworkIdentity["network"];
 }
 
 /**
@@ -551,11 +558,16 @@ export class CircleUpClient {
   protected txLogger?: TxLogger;
   /** Default upper bound for every RPC read; see {@link setReadTimeout}. */
   protected readTimeoutMs: number = DEFAULT_RPC_READ_TIMEOUT_MS;
+  /** Network identity resolved and frozen at construction; see {@link getNetworkIdentity}. */
+  protected readonly networkIdentity: NetworkIdentity;
 
   constructor(config: CircleUpConfig, pollConfig?: PollConfig) {
     // Validate upfront so callers get a clear message for misconfiguration
     // rather than an obscure RPC error on the first method call.
     validateCircleUpConfig(config);
+    // Bind the client to one network identity (issue #903). validateCircleUpConfig
+    // has already rejected inconsistent combinations; this freezes the result.
+    this.networkIdentity = resolveNetworkIdentity(config);
     this.config = config;
     this.rpc = new SorobanRpc.Server(config.rpcUrl, { allowHttp: true });
     // Merge caller-supplied overrides onto the defaults so every field is
@@ -581,6 +593,60 @@ export class CircleUpClient {
   setTxLogger(logger: TxLogger | undefined): this {
     this.txLogger = logger;
     return this;
+  }
+
+  // ── Resolved configuration (issue #903) ───────────────────────────────────
+
+  /**
+   * The network identity this client was bound to at construction (frozen).
+   * Every write is built with `passphrase` and sent to `rpcUrl`.
+   */
+  getNetworkIdentity(): NetworkIdentity {
+    return this.networkIdentity;
+  }
+
+  /**
+   * A frozen copy of the validated configuration, including the resolved
+   * `network` name. Mutating the returned object is not possible, and mutating
+   * the object originally passed to the constructor does not change it.
+   */
+  getResolvedConfig(): Readonly<CircleUpConfig & { network: NetworkIdentity["network"] }> {
+    return Object.freeze({
+      ...this.config,
+      network: this.networkIdentity.network,
+      networkPassphrase: this.networkIdentity.passphrase,
+      rpcUrl: this.networkIdentity.rpcUrl,
+      contracts: Object.freeze({ ...this.config.contracts }),
+    });
+  }
+
+  /**
+   * Explorer link for an entity on this client's network, or `null` for a
+   * custom network (no public explorer) or an empty identifier.
+   */
+  explorerLink(type: ExplorerEntityType, identifier: string): string | null {
+    const net = this.networkIdentity.explorerNetwork;
+    return net === null ? null : getExplorerLink(net, type, identifier);
+  }
+
+  /**
+   * Re-check, immediately before building a write, that the configuration
+   * still matches the identity bound at construction. `config` is held by
+   * reference, so a caller mutating it later must not be able to make the
+   * SDK sign for one network and send to another.
+   */
+  protected networkMismatch(): string | null {
+    const id = this.networkIdentity;
+    if (this.config.networkPassphrase !== id.passphrase || this.config.rpcUrl !== id.rpcUrl) {
+      return (
+        `The client configuration changed after construction (network ${id.network}). ` +
+        `Create a new client for a different network; nothing was signed.`
+      );
+    }
+    if (this.config.network !== undefined && this.config.network !== id.network) {
+      return `config.network no longer matches the bound network "${id.network}"; nothing was signed.`;
+    }
+    return null;
   }
 
   /**
@@ -619,7 +685,7 @@ export class CircleUpClient {
     const logger = this.txLogger;
     if (!logger) return;
     try {
-      logger(event);
+      logger({ ...event, network: this.networkIdentity.network });
     } catch {
       // A misbehaving logger must not affect the transaction result.
     }
@@ -716,10 +782,22 @@ export class CircleUpClient {
       return txFailure("", `Invalid call to ${ctx}: ${invalid}`, "invalid_argument");
     }
 
+    // Refuse to build or sign for a network other than the one bound at
+    // construction (issue #903).
+    const mismatch = this.networkMismatch();
+    if (mismatch) {
+      return txFailure("", `Refused to build ${ctx}: ${mismatch}`, "network_mismatch");
+    }
+
+    // Stage policy (issue #900): reads before submission retry transient and
+    // throttled errors with bounded attempts and backoff — see RETRY_POLICY.
     let account: Awaited<ReturnType<typeof this.rpc.getAccount>>;
     try {
-      account = await withRpcRetry("getAccount", () =>
-        this.rpc.getAccount(sourceKeypair.publicKey()),
+      account = await withRpcRetry(
+        "getAccount",
+        () => this.rpc.getAccount(sourceKeypair.publicKey()),
+        RETRY_POLICY.account.maxAttempts,
+        RETRY_POLICY.account.baseDelayMs,
       );
     } catch (err: any) {
       const msg = err?.message ?? "network error";
@@ -744,7 +822,7 @@ export class CircleUpClient {
     try {
       tx = new TransactionBuilder(account, {
         fee: BASE_FEE,
-        networkPassphrase: this.config.networkPassphrase,
+        networkPassphrase: this.networkIdentity.passphrase,
       })
         .addOperation(new Contract(contractId).call(method, ...args))
         .setTimeout(30)
@@ -762,8 +840,11 @@ export class CircleUpClient {
     // typed TxFailure path.
     let simResult: Awaited<ReturnType<typeof this.rpc.simulateTransaction>>;
     try {
-      simResult = await withRpcRetry("simulateTransaction", () =>
-        this.rpc.simulateTransaction(tx),
+      simResult = await withRpcRetry(
+        "simulateTransaction",
+        () => this.rpc.simulateTransaction(tx),
+        RETRY_POLICY.simulation.maxAttempts,
+        RETRY_POLICY.simulation.baseDelayMs,
       );
     } catch (err: any) {
       return txFailure(
@@ -944,12 +1025,12 @@ export class CircleUpClient {
       } catch (err: any) {
         lastError = formatRpcError(err?.message ?? String(err), this.config.rpcUrl);
         if (mayHaveReachedServer(err)) priorAmbiguous = true;
-        if (!isTransientRpcError(err) || attempt >= SEND_MAX_ATTEMPTS) {
+        if (!isTransientRpcError(err) || attempt >= RETRY_POLICY.submission.maxAttempts) {
           return priorAmbiguous
             ? { kind: "ambiguous", attempts: attempt, lastError }
             : { kind: "not_submitted", attempts: attempt, lastError };
         }
-        const ceiling = 400 * 2 ** (attempt - 1);
+        const ceiling = RETRY_POLICY.submission.baseDelayMs * 2 ** (attempt - 1);
         await new Promise((r) => setTimeout(r, Math.floor(Math.random() * ceiling)));
       }
     }
@@ -1129,6 +1210,41 @@ export class CircleUpClient {
         `check Stellar Expert before retrying.`,
       "timeout",
     );
+  }
+
+  /**
+   * Resume confirmation polling for a transaction that was already submitted,
+   * without submitting anything (issue #902).
+   *
+   * Use it after a write returned `"timeout"`, `"stale_rpc"`, or
+   * `"outcome_unknown"`, or from a saved receipt: the transaction may become
+   * visible after the original polling budget ran out. Polls under this
+   * client's {@link PollConfig} and returns the same {@link TxResult} codes as
+   * a write, so `txLifecycleFromResult` applies unchanged. Never signs, never
+   * rebuilds, never resends.
+   *
+   * @param options.validUntil  The envelope's upper time bound
+   *   (`SubmissionDiagnostics.validUntil`); lets a NOT_FOUND after expiry
+   *   resolve to `"tx_expired"`.
+   * @param options.accepted    `true` when the RPC is known to have accepted
+   *   the envelope (PENDING/DUPLICATE). Defaults to `false`.
+   */
+  async waitForTransaction(
+    txHash: string,
+    options?: { validUntil?: number; accepted?: boolean },
+  ): Promise<TxResult> {
+    if (typeof txHash !== "string" || !/^[0-9a-f]{64}$/i.test(txHash)) {
+      return txFailure(
+        "",
+        `waitForTransaction: ${JSON.stringify(txHash)} is not a transaction hash (64 hex characters).`,
+        "invalid_argument",
+      );
+    }
+    return this.awaitConfirmation(txHash.toLowerCase(), `transaction ${txHash}`, {
+      submission: options?.accepted ? "accepted" : "unknown",
+      sendAttempts: 0,
+      validUntil: options?.validUntil,
+    });
   }
 
   /**
