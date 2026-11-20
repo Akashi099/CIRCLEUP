@@ -324,3 +324,24 @@ export const CIRCLE_ACTIVITY_EMPTY_FIXTURE = {
   events: [],
   pagination: { page: 1, limit: 50, total: 0, totalPages: 0, hasMore: false },
 };
+
+// ── Keyset (cursor) pages — issue #898 ────────────────────────────────────────
+//
+// Cursor pages skip COUNT(*), so their envelope is { limit, hasMore,
+// nextCursor } instead of the page/total metadata. Tokens are opaque.
+
+/** GET /members/:member/contributions?cursor= — a middle page. */
+export const MEMBER_CONTRIBUTIONS_CURSOR_FIXTURE = {
+  member: MEMBER_A,
+  circle: null,
+  contributions: MEMBER_CONTRIBUTIONS_FIXTURE.contributions,
+  totalAmount: "100000000",
+  pagination: { limit: 1, hasMore: true, nextCursor: "eyJ2IjoxfQ" },
+};
+
+/** GET /circles/:address/activity?cursor=<token> — the final page. */
+export const CIRCLE_ACTIVITY_CURSOR_FIXTURE = {
+  circle_address: CIRCLE,
+  events: CIRCLE_ACTIVITY_FIXTURE.events.slice(2),
+  pagination: { limit: 2, hasMore: false, nextCursor: null },
+};

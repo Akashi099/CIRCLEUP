@@ -9,6 +9,33 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Cursor pagination for history scans** (#898):
+  `GET /circles/:address/activity` and `GET /members/:member/contributions`
+  accept an opaque `?cursor=` keyset token with a deterministic tie-breaker.
+  Cursor pages return `{ limit, hasMore, nextCursor }`, and page-mode
+  envelopes also carry `nextCursor`. `?page=` is unchanged. The SDK adds
+  `IndexerClient.getMemberContributionsByCursor`,
+  `iterateMemberContributionsByCursor`, `getCircleActivityByCursor`,
+  `iterateCircleActivityByCursor` and the `IndexerCursorPagination` /
+  `CursorPageParams` types. See `docs/INDEXER_API_COMPATIBILITY.md`.
+- **RPC read timeouts and cancellation** (#899): every RPC-backed SDK read
+  (`getConfig`, `getStatus`, `getCurrentRound`, `getCollateral`,
+  `getDefaults`, `hasContributed`, `getFullState`, `getScore`, factory reads,
+  `lookupTransaction`) takes optional `ReadOptions { timeoutMs, signal }`. One
+  deadline covers all retries, and the default is `DEFAULT_RPC_READ_TIMEOUT_MS`
+  (20 s), configurable with `setReadTimeout`. A stopped read throws
+  `RpcReadCancelledError` (`reason: "timeout" | "aborted"`), or sets
+  `cancelled` on `*Result` / `lookupTransaction` failures, so it is never
+  mistaken for a remote error. A stopped status lookup says explicitly that
+  the transaction was not cancelled. Writes are unchanged.
+- **Wallet adapter boundary** (#904): the SDK exports an optional
+  `WalletAdapter` interface and `signWithWalletAdapter`, which refuses before
+  any signing prompt with an explicit `WalletFailure` (`not_available`,
+  `unsupported_capability`, `account_mismatch`, `network_mismatch`,
+  `user_rejected`, …). It is types only, with no browser globals. The app's
+  Freighter integration is now `freighterAdapter`
+  (`app/src/lib/walletAdapter.ts`), and `submitContractTx` signs through it
+  without changing the order of simulate, sign, send and poll.
 - **Circle lifecycle transition matrix**: `contracts/circle/src/transition.rs`
   specifies the outcome of every public mutation in the Pending, Active,
   Completed, Cancelled, Paused and Closed conditions, along with the pause
@@ -243,6 +270,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
   end-to-end threading through `CircleClient.join`)
 
 ### Changed
+- **Indexer numeric wire format** (#897): every numeric response field now
+  has exactly one documented JSON type (`docs/INDEXER_NUMERIC_WIRE_FORMAT.md`).
+  Amounts are decimal strings, persisted BIGINT ledgers are decimal strings,
+  and counters and computed ledgers are safe JSON integers. Migration notes:
+  `GET /members/:member/circles` now returns `circle.deadline_ledger` as a JSON
+  integer (it used to be a string). The SDK schemas no longer accept either
+  form for ledger fields. The SDK types `ApiCircleRow.created_ledger`,
+  `round_deadline_ledgers`, `roundDeadlineLedgers` and `ApiRoundRow.ledger`
+  are narrowed to `string`.
 - **Issue 31**: Event ingestion is now fully restart-safe — the indexer cursor and
   all event projections (circles, contributions, payouts, etc.) are written in a
   single database transaction per ledger. On crash before commit, the transaction

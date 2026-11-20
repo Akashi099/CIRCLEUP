@@ -70,12 +70,7 @@ import { isUndefinedTable, listOpenEventFailures } from "./eventFailures";
 import { redactAddress } from "./redact";
 import { logApiCorsRejected, logApiRequest, logApiRequestError } from "./logger";
 import type { MigrationHealth } from "./db/migrate";
-import {
-  getPipelineMetrics,
-  formatPrometheusMetrics,
-  recordHttpRequest,
-  type RouteClass,
-} from "./metrics";
+import { encodeHistoryCursor, parseHistoryCursor } from "./historyCursor";
 
 // ── Address validation ────────────────────────────────────────────────────────
 //
@@ -310,6 +305,33 @@ type CircleStatus = (typeof CIRCLE_STATUSES)[number];
 const HEALTH_CHECK_TIMEOUT_MS = 5_000;
 void HEALTH_CHECK_TIMEOUT_MS; // retained for reference; checks now live in health.ts
 
+// ── Numeric wire format (issue #897) ────────────────────────────────────────
+//
+// Every numeric response field has exactly one JSON representation; the
+// per-field table lives in docs/INDEXER_NUMERIC_WIRE_FORMAT.md and is
+// enforced by sdk/src/indexerSchema.ts:
+//
+//   • Base-unit amounts (NUMERIC: round_amount, collateral, amount, penalty,
+//     totals) → decimal integer strings, never JSON numbers. pg already
+//     returns NUMERIC as a string; never pass one through Number().
+//   • Persisted BIGINT columns (row `ledger`, `created_ledger`,
+//     `round_deadline_ledgers`) → decimal strings, exactly as pg returns them.
+//   • Values the handler computes or converts (counts, page metadata,
+//     latestLedger / lastLedger, deadline ledgers, activity `ledger`) → JSON
+//     safe integers via toSafeInteger, which refuses to round silently.
+
+/**
+ * Convert a pg BIGINT / COUNT value to a JSON number, throwing instead of
+ * silently rounding when it is outside Number's safe-integer range.
+ */
+export function toSafeInteger(value: string | number | bigint, field: string): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isSafeInteger(n)) {
+    throw new RangeError(`${field} is outside the JSON safe-integer range and cannot be serialised as a number`);
+  }
+  return n;
+}
+
 type ParseResult<T> = T | { error: string };
 
 function isParseError<T>(result: ParseResult<T>): result is { error: string } {
@@ -431,7 +453,8 @@ interface CircleRow {
   current_round: number;
   total_rounds: number;
   created_ledger: string;
-  round_deadline_ledgers: number | null;
+  /** BIGINT — pg returns it as a decimal string. */
+  round_deadline_ledgers: string | null;
   updated_at: string;
 }
 
@@ -822,7 +845,7 @@ export function createApp(options: { cachedMigrationHealth?: MigrationHealth | n
       const indexerState = await queryOne<IndexerStateRow>(
         `SELECT last_ledger FROM indexer_state WHERE id = 1`,
       );
-      const latestLedger = indexerState ? Number(indexerState.last_ledger) : null;
+      const latestLedger = indexerState ? toSafeInteger(indexerState.last_ledger, "latestLedger") : null;
 
       // Compute deadline_ledger for the current active round when we have
       // enough data.  Formula:
@@ -1147,8 +1170,9 @@ export function createApp(options: { cachedMigrationHealth?: MigrationHealth | n
           total_rounds: number;
           created_ledger: string;
           updated_at: string;
-          deadline_ledger: number | null;
-          round_deadline_ledgers: number | null;
+          // Both BIGINT expressions — pg returns decimal strings.
+          deadline_ledger: string | null;
+          round_deadline_ledgers: string | null;
           // member fields
           payout_order: number;
           join_order: number | null;
@@ -1211,7 +1235,11 @@ export function createApp(options: { cachedMigrationHealth?: MigrationHealth | n
             total_rounds:           row.total_rounds,
             created_ledger:         row.created_ledger,
             updated_at:             row.updated_at,
-            deadline_ledger:        row.deadline_ledger,
+            // Computed ledger → JSON integer, matching GET /circles/:address
+            // (issue #897: previously leaked the raw BIGINT string here).
+            deadline_ledger:        row.deadline_ledger == null
+                                      ? null
+                                      : toSafeInteger(row.deadline_ledger, "deadline_ledger"),
             round_deadline_ledgers: row.round_deadline_ledgers,
           },
           member: {
@@ -1271,15 +1299,20 @@ export function createApp(options: { cachedMigrationHealth?: MigrationHealth | n
 
     const pageResult  = parsePage(req.query.page);
     const limitResult = parseLimit(req.query.limit);
-    if (isParseError(pageResult) || isParseError(limitResult)) {
-      res.status(400).json({
-        error: [pageResult, limitResult].filter(isParseError).map((r) => r.error).join("; "),
-      });
+    // Issue #898: optional opaque keyset cursor (see historyCursor.ts).
+    const cursorResult = parseHistoryCursor(req.query.cursor, "activity", address);
+    const activityErrors = [pageResult, limitResult, cursorResult].filter(isParseError).map((r) => r.error);
+    if (!("error" in cursorResult) && cursorResult.mode === "cursor" && req.query.page !== undefined) {
+      activityErrors.push("cursor and page cannot be combined");
+    }
+    if (activityErrors.length > 0) {
+      res.status(400).json({ error: activityErrors.join("; ") });
       return;
     }
     const page   = pageResult  as number;
     const limit  = Math.min(limitResult as number, 100);
     const offset = (page - 1) * limit;
+    const cursor = cursorResult as Exclude<typeof cursorResult, { error: string }>;
 
     try {
       const circle = await queryOne<Pick<CircleRow, "address">>(
@@ -1342,23 +1375,73 @@ export function createApp(options: { cachedMigrationHealth?: MigrationHealth | n
         FROM payouts WHERE circle_address = $1
       `;
 
+      interface ActivityEventRow {
+        type: string;
+        actor: string;
+        round: number;
+        amount: string | null;
+        penalty: string | null;
+        tx_hash: string;
+        ledger: string;
+        event_position: number;
+        sort_id: number;
+        timestamp: string;
+      }
+      const activitySelect =
+        `SELECT type, actor, round, amount, penalty, tx_hash, ledger,
+                event_position, sort_id, timestamp
+         FROM (${eventsSql}) ev`;
+      const activityOrder = `ORDER BY ledger ASC, event_position ASC, sort_id ASC`;
+      const activityCursor = (row: ActivityEventRow) =>
+        encodeHistoryCursor("activity", address, [row.ledger, row.event_position, row.sort_id]);
+
+      const serialiseEvents = (events: ActivityEventRow[]) => events.map((ev) => ({
+          type:           ev.type,
+          actor:          ev.actor,
+          round:          ev.round,
+          amount:         ev.type === "circle_payout" || ev.type === "circle_contribute"
+                            ? ev.amount
+                            : null,
+          penalty:        ev.type === "circle_default" ? ev.penalty : null,
+          tx_hash:        ev.tx_hash,
+          ledger:         toSafeInteger(ev.ledger, "ledger"),
+          event_position: ev.event_position,
+          // Stable id for deterministic React keys: ledger-position-sort_id
+          id:             `${ev.ledger}-${ev.event_position}-${ev.sort_id}`,
+          timestamp:      ev.timestamp,
+        }));
+
+      if (cursor.mode === "cursor") {
+        // Keyset scan: no OFFSET and no COUNT(*), so deep pages stay cheap.
+        // One extra row tells us whether another page exists.
+        const after = cursor.after;
+        const rows = await query<ActivityEventRow>(
+          after
+            ? `${activitySelect}
+               WHERE (ledger, event_position, sort_id) > ($2::bigint, $3::int, $4::int)
+               ${activityOrder}
+               LIMIT $5`
+            : `${activitySelect} ${activityOrder} LIMIT $2`,
+          after ? [address, after[0], after[1], after[2], limit + 1] : [address, limit + 1],
+        );
+        const hasMore = rows.length > limit;
+        const pageRows = hasMore ? rows.slice(0, limit) : rows;
+        res.json({
+          circle_address: address,
+          events: serialiseEvents(pageRows),
+          pagination: {
+            limit,
+            hasMore,
+            nextCursor: hasMore ? activityCursor(pageRows[pageRows.length - 1]) : null,
+          },
+        });
+        return;
+      }
+
       const [events, countRow] = await Promise.all([
-        query<{
-          type: string;
-          actor: string;
-          round: number;
-          amount: string | null;
-          penalty: string | null;
-          tx_hash: string;
-          ledger: string;
-          event_position: number;
-          sort_id: number;
-          timestamp: string;
-        }>(
-          `SELECT type, actor, round, amount, penalty, tx_hash, ledger,
-                  event_position, sort_id, timestamp
-           FROM (${eventsSql}) ev
-           ORDER BY ledger ASC, event_position ASC, sort_id ASC
+        query<ActivityEventRow>(
+          `${activitySelect}
+           ${activityOrder}
            LIMIT $2 OFFSET $3`,
           [address, limit, offset],
         ),
@@ -1368,32 +1451,21 @@ export function createApp(options: { cachedMigrationHealth?: MigrationHealth | n
         ),
       ]);
 
-      const total      = Number(countRow.count);
+      const total      = toSafeInteger(countRow.count, "total");
       const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+      const hasMore    = page < totalPages;
 
       res.json({
         circle_address: address,
-        events: events.map((ev, i) => ({
-          type:           ev.type,
-          actor:          ev.actor,
-          round:          ev.round,
-          amount:         ev.type === "circle_payout" || ev.type === "circle_contribute"
-                            ? ev.amount
-                            : null,
-          penalty:        ev.type === "circle_default" ? ev.penalty : null,
-          tx_hash:        ev.tx_hash,
-          ledger:         Number(ev.ledger),
-          event_position: ev.event_position,
-          // Stable id for deterministic React keys: ledger-position-sort_id
-          id:             `${ev.ledger}-${ev.event_position}-${ev.sort_id}`,
-          timestamp:      ev.timestamp,
-        })),
+        events: serialiseEvents(events),
         pagination: {
           page,
           limit,
           total,
           totalPages,
-          hasMore: page < totalPages,
+          hasMore,
+          // Lets a page-1 reader continue with the cheaper keyset scan.
+          nextCursor: hasMore && events.length > 0 ? activityCursor(events[events.length - 1]) : null,
         },
       });
     } catch (err) {
@@ -1434,10 +1506,17 @@ export function createApp(options: { cachedMigrationHealth?: MigrationHealth | n
     const pageResult = parsePage(req.query.page);
     const limitResult = parseLimit(req.query.limit);
     const circleResult = parseCircleFilter(req.query.circle);
+    // Issue #898: the cursor is bound to this member + circle filter, so a
+    // token cannot be replayed against a different query.
+    const cursorFilter = `${member}|${isParseError(circleResult) ? "" : circleResult ?? ""}`;
+    const cursorResult = parseHistoryCursor(req.query.cursor, "contributions", cursorFilter);
 
-    const errors = [pageResult, limitResult, circleResult]
+    const errors = [pageResult, limitResult, circleResult, cursorResult]
       .filter(isParseError)
       .map((r) => r.error);
+    if (!("error" in cursorResult) && cursorResult.mode === "cursor" && req.query.page !== undefined) {
+      errors.push("cursor and page cannot be combined");
+    }
 
     if (errors.length > 0) {
       res.status(400).json({ error: errors.join("; ") });
@@ -1448,6 +1527,7 @@ export function createApp(options: { cachedMigrationHealth?: MigrationHealth | n
     const limit = limitResult as number;
     const circleFilter = circleResult as string | undefined;
     const offset = (page - 1) * limit;
+    const cursor = cursorResult as Exclude<typeof cursorResult, { error: string }>;
 
     try {
       if (circleFilter) {
@@ -1475,14 +1555,71 @@ export function createApp(options: { cachedMigrationHealth?: MigrationHealth | n
         : [member];
 
       interface ContribAggRow { count: string; total_amount: string }
+      // Keyset columns ride along under aliases that are stripped before
+      // serialising, so the row shape on the wire is unchanged.
+      interface KeyedContributionRow extends ContributionRow {
+        cursor_id: number;
+        cursor_created_at: string;
+      }
+      const contributionSelect =
+        `SELECT c.circle_address, c.member_address, c.round_index, c.amount::text as amount,
+                c.tx_hash, c.ledger, c.created_at,
+                c.id AS cursor_id, c.created_at::text AS cursor_created_at
+         FROM contributions c`;
+      const contributionOrder = `ORDER BY c.ledger DESC, c.round_index DESC, c.created_at DESC, c.id DESC`;
+      const contributionCursor = (row: KeyedContributionRow) =>
+        encodeHistoryCursor("contributions", cursorFilter, [
+          row.ledger,
+          row.round_index,
+          row.cursor_created_at,
+          row.cursor_id,
+        ]);
+      const stripKeys = (rows: KeyedContributionRow[]): ContributionRow[] =>
+        rows.map(({ cursor_id: _id, cursor_created_at: _at, ...row }) => row);
 
-      const [contributions, agg] = await Promise.all([
-        query<ContributionRow>(
-          `SELECT c.circle_address, c.member_address, c.round_index, c.amount::text as amount,
-                  c.tx_hash, c.ledger, c.created_at
-           FROM contributions c
+      if (cursor.mode === "cursor") {
+        // Keyset scan (newest first): strictly after the previous page's last
+        // row. Skips COUNT(*); `totalAmount` is still the full-scope sum.
+        const after = cursor.after;
+        const keyParams = after ? [after[0], after[1], after[2], after[3]] : [];
+        const base = whereParams.length;
+        const keyClause = after
+          ? ` AND (c.ledger, c.round_index, c.created_at, c.id) < ($${base + 1}::bigint, $${base + 2}::int, $${base + 3}::timestamptz, $${base + 4}::int)`
+          : "";
+        const [rows, sum] = await Promise.all([
+          query<KeyedContributionRow>(
+            `${contributionSelect}
+             ${whereSql}${keyClause}
+             ${contributionOrder}
+             LIMIT $${base + keyParams.length + 1}`,
+            [...whereParams, ...keyParams, limit + 1],
+          ),
+          queryOne<{ total_amount: string }>(
+            `SELECT COALESCE(SUM(c.amount), 0)::text as total_amount FROM contributions c ${whereSql}`,
+            whereParams,
+          ),
+        ]);
+        const hasMore = rows.length > limit;
+        const pageRows = hasMore ? rows.slice(0, limit) : rows;
+        res.json({
+          member,
+          circle: circleFilter ?? null,
+          contributions: stripKeys(pageRows),
+          totalAmount: sum?.total_amount ?? "0",
+          pagination: {
+            limit,
+            hasMore,
+            nextCursor: hasMore ? contributionCursor(pageRows[pageRows.length - 1]) : null,
+          },
+        });
+        return;
+      }
+
+      const [keyedContributions, agg] = await Promise.all([
+        query<KeyedContributionRow>(
+          `${contributionSelect}
            ${whereSql}
-           ORDER BY c.ledger DESC, c.round_index DESC, c.created_at DESC, c.id DESC
+           ${contributionOrder}
            LIMIT $${whereParams.length + 1} OFFSET $${whereParams.length + 2}`,
           [...whereParams, limit, offset],
         ),
@@ -1494,8 +1631,10 @@ export function createApp(options: { cachedMigrationHealth?: MigrationHealth | n
         ),
       ]);
 
-      const total = Number(agg?.count ?? 0);
+      const total = toSafeInteger(agg?.count ?? 0, "total");
       const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+      const hasMore = page < totalPages;
+      const contributions = stripKeys(keyedContributions);
 
       res.json({
         member,
@@ -1507,7 +1646,12 @@ export function createApp(options: { cachedMigrationHealth?: MigrationHealth | n
           limit,
           total,
           totalPages,
-          hasMore: page < totalPages,
+          hasMore,
+          // Lets a page-1 reader continue with the cheaper keyset scan.
+          nextCursor:
+            hasMore && keyedContributions.length > 0
+              ? contributionCursor(keyedContributions[keyedContributions.length - 1])
+              : null,
         },
       });
     } catch (err) {
@@ -1865,7 +2009,7 @@ export function createApp(options: { cachedMigrationHealth?: MigrationHealth | n
       }
 
       res.json({
-        lastLedger: Number(state.last_ledger),
+        lastLedger: toSafeInteger(state.last_ledger, "lastLedger"),
         updatedAt: state.updated_at,
         totalEvents,
         eventCounts,

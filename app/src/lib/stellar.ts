@@ -31,7 +31,6 @@ import {
 import {
   isConnected,
   getPublicKey,
-  signTransaction,
   requestAccess,
 } from "@stellar/freighter-api";
 import { STELLAR_RPC_URL, NETWORK_PASSPHRASE, REPUTATION_ADDRESS } from "./config";
@@ -55,6 +54,11 @@ import {
   explainUnsupportedAction,
   type WalletCapabilities,
 } from "./walletCapabilities";
+import {
+  freighterAdapter,
+  NO_SIGNATURE_MESSAGE,
+  type WalletAdapter,
+} from "./walletAdapter";
 
 // ─── Freighter detection & error types ───────────────────────────────────────
 
@@ -695,6 +699,33 @@ export function checkWalletCapabilities(): ContractAppError | null {
 }
 
 /**
+ * Capability pre-check for any {@link WalletAdapter}. The Freighter adapter
+ * keeps the exact pre-adapter check ({@link checkWalletCapabilities}); other
+ * adapters are judged by their own capability report.
+ */
+function walletSigningError(wallet: WalletAdapter): ContractAppError | null {
+  if (wallet === freighterAdapter) return checkWalletCapabilities();
+  const report = wallet.capabilities();
+  if (!report.available) {
+    return parseContractError("No Stellar wallet detected. Install a supported wallet to continue.");
+  }
+  if (!report.supports.signTransaction) {
+    return parseContractError(
+      "Your wallet does not support the ability to sign this transaction. Switch to a wallet that supports it.",
+    );
+  }
+  return null;
+}
+
+/** Active account of `wallet`, or `null` when it cannot report one. */
+async function currentWalletAddress(wallet: WalletAdapter): Promise<string | null> {
+  // Freighter keeps its original lookup (including the not-installed error).
+  if (wallet === freighterAdapter) return getWalletAddress();
+  const result = await wallet.getAddress();
+  return result.ok ? result.value : null;
+}
+
+/**
  * Phase 2 of the transaction lifecycle: sign a prepared transaction XDR with
  * Freighter, broadcast it to the Soroban RPC, and poll for confirmation.
  *
@@ -718,20 +749,28 @@ export function checkWalletCapabilities(): ContractAppError | null {
  *  - Callers that do not pass a `signal` are unaffected — existing behavior
  *    is fully preserved.
  *
+ * Wallet boundary (issue #904): every provider call — account lookup,
+ * capability check and signing — goes through `wallet`, which defaults to the
+ * existing Freighter integration ({@link freighterAdapter}). The order of
+ * identity check → capability check → sign → identity re-check → send → poll
+ * is unchanged, and an unsupported capability fails before any prompt.
+ *
  * @param preparedXdr Unsigned, assembled transaction XDR from {@link simulateContractTx}.
  * @param txCtx       Telemetry context handle from the originating {@link startTx} call.
  * @param signal      Optional {@link AbortSignal} for local cancellation.
+ * @param wallet      Wallet adapter that signs; defaults to Freighter.
  */
 export async function submitContractTx(
   preparedXdr: string,
   accountToSign: string,
   txCtx: ReturnType<typeof startTx>,
   signal?: AbortSignal,
+  wallet: WalletAdapter = freighterAdapter,
 ): Promise<InvokeResult> {
   signal?.throwIfAborted();
   const identityRevision = walletRevision();
   const assertIdentity = async () => {
-    const address = await getWalletAddress();
+    const address = await currentWalletAddress(wallet);
     if (identityRevision !== walletRevision() || address !== accountToSign) throw new Error('Wallet account changed. Review the action again.');
     if (!deploymentVerified()) throw new Error('Verify the configured deployment before submitting.');
     signal?.throwIfAborted();
@@ -745,7 +784,7 @@ export async function submitContractTx(
   signal?.throwIfAborted();
 
   // ── Pre-flight: verify wallet can sign ─────────────────────────────────────
-  const capError = checkWalletCapabilities();
+  const capError = walletSigningError(wallet);
   if (capError) {
     emit(txCtx, "failed", categorizeError(capError.message));
     return {
@@ -761,23 +800,29 @@ export async function submitContractTx(
   // cannot interrupt the wallet prompt itself.  We check the signal again
   // immediately after signing returns — if it fired while the user was
   // approving in the extension we still exit before broadcasting.
-  let signedXdr: string;
-  try {
-    signedXdr = await signTransaction(preparedXdr, {
-      networkPassphrase: NETWORK_PASSPHRASE,
-      accountToSign,
-    });
-  } catch (err: any) {
-    const msg: string = err?.message ?? "";
-    const lower = msg.toLowerCase();
-    if (
-      lower.includes("denied") ||
-      lower.includes("rejected") ||
-      lower.includes("cancelled") ||
-      lower.includes("canceled")
-    ) {
+  //
+  // The adapter never throws for provider problems; it returns an explicit
+  // result that maps onto the same typed errors and telemetry as before.
+  const signResult = await wallet.signTransaction(preparedXdr, {
+    networkPassphrase: NETWORK_PASSPHRASE,
+    accountToSign,
+  });
+
+  if (!signResult.ok) {
+    const msg = signResult.message;
+    if (signResult.reason === "user_rejected") {
       emit(txCtx, "wallet_rejected", "wallet_denied");
       const typedError = parseContractError(msg || "User rejected");
+      return {
+        txHash: "",
+        success: false,
+        error: userMessageForError(typedError),
+        typedError,
+      };
+    }
+    if (msg === NO_SIGNATURE_MESSAGE) {
+      const typedError = parseContractError(NO_SIGNATURE_MESSAGE);
+      emit(txCtx, "failed", "unknown");
       return {
         txHash: "",
         success: false,
@@ -794,17 +839,7 @@ export async function submitContractTx(
       typedError,
     };
   }
-
-  if (!signedXdr) {
-    const typedError = parseContractError("Freighter did not return a signed transaction.");
-    emit(txCtx, "failed", "unknown");
-    return {
-      txHash: "",
-      success: false,
-      error: userMessageForError(typedError),
-      typedError,
-    };
-  }
+  const signedXdr = signResult.value;
 
   // ── Abort gate: post-signing, pre-broadcast ───────────────────────────────
   // The transaction has been signed but NOT yet broadcast.  Aborting here is
