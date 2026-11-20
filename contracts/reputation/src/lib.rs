@@ -459,7 +459,7 @@ impl ReputationContract {
 mod tests {
     extern crate std;
     use super::*;
-    use soroban_sdk::testutils::{Address as _, Events};
+    use soroban_sdk::testutils::{storage::Persistent, Address as _, Events, Ledger};
     use soroban_sdk::{Env, FromVal, TryFromVal, Val};
 
     // ── Fixture ───────────────────────────────────────────────────────────────
@@ -534,17 +534,23 @@ mod tests {
     /// and never finds anything.
     fn events_named(env: &Env, name: &str) -> std::vec::Vec<Val> {
         let target = Symbol::new(env, name);
+        let target_val = target.to_val();
+        let target_xdr: soroban_sdk::xdr::ScVal = match soroban_sdk::xdr::ScVal::try_from_val(env, &target_val) {
+            Ok(v) => v,
+            Err(_) => return std::vec::Vec::new(),
+        };
         env.events()
             .all()
-            .into_iter()
-            .filter(|(_contract, topics, _data)| {
-                topics
-                    .get(1)
-                    .and_then(|topic| Symbol::try_from_val(env, &topic).ok())
-                    .map(|topic| topic == target)
-                    .unwrap_or(false)
+            .events()
+            .iter()
+            .filter_map(|e| {
+                let soroban_sdk::xdr::ContractEventBody::V0(ref v0) = e.body;
+                if v0.topics.len() > 1 && v0.topics[1] == target_xdr {
+                    Val::try_from_val(env, &v0.data).ok()
+                } else {
+                    None
+                }
             })
-            .map(|(_contract, _topics, data)| data)
             .collect()
     }
 
@@ -567,9 +573,13 @@ mod tests {
     #[test]
     fn test_double_initialize_panics() {
         let s = setup();
+        let result = s.client.try_initialize(&s.admin);
+        let Err(Ok(sdk_error)) = result else {
+            panic!("expected typed ReputationError for double initialize");
+        };
         assert_eq!(
-            s.client.try_initialize(&s.admin),
-            Err(Ok(ReputationError::AlreadyInitialized))
+            ReputationError::try_from(sdk_error).expect("must be a typed ReputationError"),
+            ReputationError::AlreadyInitialized
         );
     }
 
@@ -606,9 +616,13 @@ mod tests {
                 .set(&DataKey::Initializing, &true);
         });
 
+        let result = client.try_initialize(&Address::generate(&env));
+        let Err(Ok(sdk_error)) = result else {
+            panic!("expected typed ReputationError for initialize in progress");
+        };
         assert_eq!(
-            client.try_initialize(&Address::generate(&env)),
-            Err(Ok(ReputationError::InitializeInProgress))
+            ReputationError::try_from(sdk_error).expect("must be a typed ReputationError"),
+            ReputationError::InitializeInProgress
         );
     }
 
@@ -1337,8 +1351,9 @@ mod tests {
         let s = setup();
         let circle = Address::generate(&s.env);
         s.client.add_authorized_caller(&s.admin, &circle);
-        s.client.add_authorized_caller(&s.admin, &circle);
         assert_eq!(events_named(&s.env, "caller_added").len(), 1);
+        s.client.add_authorized_caller(&s.admin, &circle);
+        assert_eq!(events_named(&s.env, "caller_added").len(), 0);
     }
 
     /// A rejected re-registration must leave no trace in the event stream
@@ -1348,10 +1363,12 @@ mod tests {
         let s = setup();
         let circle = Address::generate(&s.env);
         s.client.add_authorized_caller(&s.admin, &circle);
+        assert_eq!(events_named(&s.env, "caller_added").len(), 1);
         s.client.remove_authorized_caller(&s.admin, &circle);
+        assert_eq!(events_named(&s.env, "caller_removed").len(), 1);
         let _ = s.client.try_add_authorized_caller(&s.admin, &circle);
 
-        assert_eq!(events_named(&s.env, "caller_added").len(), 1);
-        assert_eq!(events_named(&s.env, "caller_removed").len(), 1);
+        assert_eq!(events_named(&s.env, "caller_added").len(), 0);
+        assert_eq!(events_named(&s.env, "caller_removed").len(), 0);
     }
 }

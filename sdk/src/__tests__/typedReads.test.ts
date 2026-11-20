@@ -14,13 +14,16 @@
  */
 
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { CircleClient, CircleUpClient, isCircleNotActive } from "../client";
+import { CircleClient, CircleUpClient, ReputationClient, isCircleNotActive } from "../client";
 import {
   mapRawConfig,
   mapRawRoundState,
   assertValidCircleStatus,
   isReadSuccess,
   isReadFailure,
+  isConfirmedZero,
+  isReadUninitialized,
+  isStateUnavailable,
   decodeU32,
   decodeBigInt,
   decodeBoolean,
@@ -517,5 +520,139 @@ describe("mapRawConfig / mapRawRoundState — non-object input", () => {
     expect(() => mapRawRoundState({ ...WIRE_ROUND, paid_out: 1 })).toThrow(
       /mapRawRoundState\.paid_out/,
     );
+  });
+});
+
+// ─── Typed result reads & zero-valued distinction ─────────────────────────────
+
+describe("CircleClient.getCollateralResult", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("returns ok:true with collateral amount when present", async () => {
+    vi.spyOn(CircleUpClient.prototype as any, "simulateAndReadOrThrow").mockResolvedValue(100_000_000n);
+    const result = await makeClient().getCollateralResult(MEMBER_A_ADDR);
+    expect(result).toEqual({ ok: true, value: 100_000_000n });
+    expect(isConfirmedZero(result)).toBe(false);
+  });
+
+  it("returns ok:true with 0n for confirmed zero collateral", async () => {
+    vi.spyOn(CircleUpClient.prototype as any, "simulateAndReadOrThrow").mockResolvedValue(0n);
+    const result = await makeClient().getCollateralResult(MEMBER_A_ADDR);
+    expect(result).toEqual({ ok: true, value: 0n });
+    expect(isConfirmedZero(result)).toBe(true);
+    expect(isStateUnavailable(result)).toBe(false);
+  });
+
+  it("returns ok:false on simulation failure without defaulting to 0", async () => {
+    vi.spyOn(CircleUpClient.prototype as any, "simulateAndReadOrThrow").mockRejectedValue(
+      new Error("RPC simulation error: host panic"),
+    );
+    const result = await makeClient().getCollateralResult(MEMBER_A_ADDR);
+    expect(result.ok).toBe(false);
+    expect(isConfirmedZero(result)).toBe(false);
+    expect(isStateUnavailable(result)).toBe(true);
+  });
+});
+
+describe("CircleClient.getDefaultsResult", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("returns ok:true with confirmed zero defaults", async () => {
+    vi.spyOn(CircleUpClient.prototype as any, "simulateAndReadOrThrow").mockResolvedValue(0);
+    const result = await makeClient().getDefaultsResult(MEMBER_A_ADDR);
+    expect(result).toEqual({ ok: true, value: 0 });
+    expect(isConfirmedZero(result)).toBe(true);
+  });
+
+  it("returns ok:true with positive defaults", async () => {
+    vi.spyOn(CircleUpClient.prototype as any, "simulateAndReadOrThrow").mockResolvedValue(2);
+    const result = await makeClient().getDefaultsResult(MEMBER_A_ADDR);
+    expect(result).toEqual({ ok: true, value: 2 });
+    expect(isConfirmedZero(result)).toBe(false);
+  });
+
+  it("returns ok:false on error preserving error context", async () => {
+    vi.spyOn(CircleUpClient.prototype as any, "simulateAndReadOrThrow").mockRejectedValue(
+      new Error("ContractError(1) NotInitialized"),
+    );
+    const result = await makeClient().getDefaultsResult(MEMBER_A_ADDR);
+    expect(result.ok).toBe(false);
+    expect(isStateUnavailable(result)).toBe(true);
+  });
+});
+
+describe("CircleClient.getPotAmount and getPotAmountResult", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("getPotAmount returns pot calculation", async () => {
+    vi.spyOn(CircleUpClient.prototype as any, "simulateAndReadOrThrow").mockResolvedValue(400_000_000n);
+    const pot = await makeClient().getPotAmount();
+    expect(pot).toBe(400_000_000n);
+  });
+
+  it("getPotAmountResult returns ok:true with value", async () => {
+    vi.spyOn(CircleUpClient.prototype as any, "simulateAndReadOrThrow").mockResolvedValue(400_000_000n);
+    const result = await makeClient().getPotAmountResult();
+    expect(result).toEqual({ ok: true, value: 400_000_000n });
+  });
+
+  it("getPotAmountResult normalizes not initialized error", async () => {
+    vi.spyOn(CircleUpClient.prototype as any, "simulateAndReadOrThrow").mockRejectedValue(
+      new Error("HostError: Error(Contract, #1)"),
+    );
+    const result = await makeClient().getPotAmountResult();
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.toLowerCase()).toContain("not initialized");
+      expect(isReadUninitialized(result)).toBe(true);
+    }
+  });
+});
+
+describe("CircleClient.hasContributedResult", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("returns ok:true with boolean contribution flag", async () => {
+    vi.spyOn(CircleUpClient.prototype as any, "simulateAndReadOrThrow").mockResolvedValue(true);
+    const result = await makeClient().hasContributedResult(MEMBER_A_ADDR, 0);
+    expect(result).toEqual({ ok: true, value: true });
+  });
+
+  it("returns ok:true with false when member has not contributed", async () => {
+    vi.spyOn(CircleUpClient.prototype as any, "simulateAndReadOrThrow").mockResolvedValue(false);
+    const result = await makeClient().hasContributedResult(MEMBER_A_ADDR, 0);
+    expect(result).toEqual({ ok: true, value: false });
+  });
+
+  it("returns ok:false on decode or RPC failure", async () => {
+    vi.spyOn(CircleUpClient.prototype as any, "simulateAndReadOrThrow").mockRejectedValue(
+      new Error("connection timeout"),
+    );
+    const result = await makeClient().hasContributedResult(MEMBER_A_ADDR, 0);
+    expect(result.ok).toBe(false);
+    expect(isStateUnavailable(result)).toBe(true);
+  });
+});
+
+describe("ReputationClient.getScoreResult", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("returns ok:true with confirmed zero score", async () => {
+    const repClient = new ReputationClient(SDK_CONFIG);
+    vi.spyOn(CircleUpClient.prototype as any, "simulateAndReadOrThrow").mockResolvedValue(0);
+    const result = await repClient.getScoreResult(MEMBER_A_ADDR);
+    expect(result).toEqual({ ok: true, value: 0 });
+    expect(isConfirmedZero(result)).toBe(true);
+  });
+
+  it("returns ok:false when score read fails without defaulting to 0", async () => {
+    const repClient = new ReputationClient(SDK_CONFIG);
+    vi.spyOn(CircleUpClient.prototype as any, "simulateAndReadOrThrow").mockRejectedValue(
+      new Error("network failure"),
+    );
+    const result = await repClient.getScoreResult(MEMBER_A_ADDR);
+    expect(result.ok).toBe(false);
+    expect(isConfirmedZero(result)).toBe(false);
+    expect(isStateUnavailable(result)).toBe(true);
   });
 });

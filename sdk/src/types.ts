@@ -35,6 +35,7 @@ export {
   isValidContractAddress, isValidStellarAddress,
   validateCircleUpConfig, validateContractArgs,
   isReadSuccess, isReadFailure,
+  isConfirmedZero, isReadUninitialized, isStateUnavailable,
   decodeU32, decodeBigInt, decodeI128, decodeU64, decodeU32InRange,
   decodeRecord, decodeBoolean, decodeAddress, decodeAddressList,
   mapRawConfig, mapRawRoundState, mapRawCirclePage, assertValidCircleStatus,
@@ -51,6 +52,7 @@ export type {
   ReadSuccess,
   ReadFailure,
   ReadResult,
+  StateReadClassification,
 } from './validators';
 
 

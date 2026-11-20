@@ -700,6 +700,21 @@ export class CircleClient extends CircleUpClient {
     return decodeI128(raw, "getCollateral", { min: 0n });
   }
 
+  /**
+   * Non-throwing variant of {@link getCollateral}.
+   *
+   * Returns a `ReadResult<bigint>` discriminated union so callers can handle
+   * missing/uninitialized state without inspecting raw host traps.
+   */
+  async getCollateralResult(member: string): Promise<ReadResult<bigint>> {
+    try {
+      const value = await this.getCollateral(member);
+      return { ok: true, value };
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? "getCollateral failed" };
+    }
+  }
+
   async getDefaults(member: string): Promise<number> {
     const raw = await this.simulateAndReadOrThrow(
       this.circleAddress,
@@ -707,6 +722,51 @@ export class CircleClient extends CircleUpClient {
       [scAddress(member)],
     );
     return decodeU32(raw, "getDefaults");
+  }
+
+  /**
+   * Non-throwing variant of {@link getDefaults}.
+   *
+   * Returns a `ReadResult<number>` discriminated union.
+   */
+  async getDefaultsResult(member: string): Promise<ReadResult<number>> {
+    try {
+      const value = await this.getDefaults(member);
+      return { ok: true, value };
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? "getDefaults failed" };
+    }
+  }
+
+  /**
+   * Fetch the total pot amount that will be paid out at the end of the current
+   * round: `round_amount × member_count`.
+   *
+   * **Throws** when called before initialization or on simulation failure.
+   */
+  async getPotAmount(): Promise<bigint> {
+    const raw = await this.simulateAndReadOrThrow(
+      this.circleAddress,
+      "get_pot_amount",
+      [],
+    );
+    return decodeI128(raw, "getPotAmount", { min: 1n });
+  }
+
+  /**
+   * Non-throwing variant of {@link getPotAmount}.
+   *
+   * Returns a `ReadResult<bigint>` discriminated union. When called before
+   * initialization, `r.ok` is false and `r.error` contains "not initialized".
+   */
+  async getPotAmountResult(): Promise<ReadResult<bigint>> {
+    try {
+      const value = await this.getPotAmount();
+      return { ok: true, value };
+    } catch (err: any) {
+      const raw: string = err?.message ?? "getPotAmount failed";
+      return { ok: false, error: normalizeNotInitializedError(raw) };
+    }
   }
 
   /**
@@ -734,6 +794,20 @@ export class CircleClient extends CircleUpClient {
       ],
     );
     return decodeBoolean(raw, "hasContributed");
+  }
+
+  /**
+   * Non-throwing variant of {@link hasContributed}.
+   *
+   * Returns a `ReadResult<boolean>` discriminated union.
+   */
+  async hasContributedResult(member: string, roundIndex: number): Promise<ReadResult<boolean>> {
+    try {
+      const value = await this.hasContributed(member, roundIndex);
+      return { ok: true, value };
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? "hasContributed failed" };
+    }
   }
 
   /**
@@ -978,6 +1052,21 @@ export class ReputationClient extends CircleUpClient {
       [scAddress(member)],
     );
     return decodeU32(raw, "getScore");
+  }
+
+  /**
+   * Non-throwing variant of {@link getScore}.
+   *
+   * Returns a `ReadResult<number>` discriminated union so callers can
+   * distinguish known zero scores from simulation or network failures.
+   */
+  async getScoreResult(member: string): Promise<ReadResult<number>> {
+    try {
+      const value = await this.getScore(member);
+      return { ok: true, value };
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? "getScore failed" };
+    }
   }
 }
 
