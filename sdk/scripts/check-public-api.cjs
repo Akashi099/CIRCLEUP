@@ -88,16 +88,61 @@ function rootImports(text) {
 
 /** Every name exported by the built root declaration, resolved through `export *`. */
 function builtExports() {
-  const program = ts.createProgram([DIST_ENTRY], {
-    noEmit: true,
-    skipLibCheck: true,
-    moduleResolution: ts.ModuleResolutionKind.Node10,
-  });
-  const checker = program.getTypeChecker();
-  const source = program.getSourceFile(DIST_ENTRY);
-  const moduleSymbol = source && checker.getSymbolAtLocation(source);
-  if (!moduleSymbol) return null;
-  return new Set(checker.getExportsOfModule(moduleSymbol).map((s) => s.getName()));
+  if (typeof ts.createProgram === "function" && ts.ModuleResolutionKind) {
+    try {
+      const program = ts.createProgram([DIST_ENTRY], {
+        noEmit: true,
+        skipLibCheck: true,
+        moduleResolution: ts.ModuleResolutionKind.Node10 ?? 2,
+      });
+      const checker = program.getTypeChecker();
+      const source = program.getSourceFile(DIST_ENTRY);
+      const moduleSymbol = source && checker.getSymbolAtLocation(source);
+      if (moduleSymbol) {
+        return new Set(checker.getExportsOfModule(moduleSymbol).map((s) => s.getName()));
+      }
+    } catch {
+      // Fallback to declaration parser below
+    }
+  }
+
+  // Robust declaration parser across TypeScript versions
+  const seenFiles = new Set();
+  function parseDts(file) {
+    if (seenFiles.has(file) || !fs.existsSync(file)) return new Set();
+    seenFiles.add(file);
+    const code = fs.readFileSync(file, "utf8");
+    const names = new Set();
+
+    // export { a, b, type c } from "..." or export { a, b }
+    const namedRe = /export\s+(?:type\s+)?\{([^}]+)\}/g;
+    let m;
+    while ((m = namedRe.exec(code))) {
+      m[1]
+        .split(",")
+        .map((s) => s.trim().replace(/^type\s+/, "").split(/\s+as\s+/).pop().trim())
+        .filter(Boolean)
+        .forEach((n) => names.add(n));
+    }
+
+    // export * from "./sub"
+    const starRe = /export\s+\*\s+from\s+["']([^"']+)["']/g;
+    while ((m = starRe.exec(code))) {
+      const sub = path.resolve(path.dirname(file), m[1] + (m[1].endsWith(".d.ts") ? "" : ".d.ts"));
+      const subExports = parseDts(sub);
+      for (const e of subExports) names.add(e);
+    }
+
+    // export declare function/const/class/type/interface
+    const declRe = /export\s+(?:declare\s+)?(?:function|const|let|var|class|type|interface|enum)\s+([a-zA-Z0-9_$]+)/g;
+    while ((m = declRe.exec(code))) {
+      if (m[1] !== "from" && m[1] !== "default") names.add(m[1]);
+    }
+
+    return names;
+  }
+
+  return parseDts(DIST_ENTRY);
 }
 
 // ── 1 & 2. Root exports vs docs, and internal helpers ────────────────────────

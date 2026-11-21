@@ -45,7 +45,9 @@ interface CargoToml {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const ROOT = path.resolve(__dirname, '..', '..');
+const ROOT = typeof __dirname !== 'undefined'
+  ? path.resolve(__dirname, '..', '..')
+  : path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
 const VERBOSE = process.argv.includes('--verbose');
 
 /** Sub-headings that must appear in [Unreleased] when it is non-empty. */
@@ -522,6 +524,44 @@ export function checkArtifactHashDocumentation(overrideContent?: string): CheckR
   );
 }
 
+/**
+ * Check 9 — SDK compatibility and semantic-versioning policy (Issue #909).
+ *
+ * Verifies that docs/SDK_COMPATIBILITY.md exists, defines the public API
+ * surface and deprecation rules, and is linked from sdk/README.md.
+ */
+export function checkSdkCompatibilityPolicy(): CheckResult {
+  const policyPath = path.join(ROOT, 'docs', 'SDK_COMPATIBILITY.md');
+  if (!fs.existsSync(policyPath)) {
+    return fail(
+      'sdk-policy',
+      'docs/SDK_COMPATIBILITY.md not found',
+      'Create docs/SDK_COMPATIBILITY.md with semver and deprecation policies',
+    );
+  }
+
+  const content = readFile(policyPath) ?? '';
+  if (!content.includes('Semantic Versioning') || !content.includes('Deprecation')) {
+    return fail(
+      'sdk-policy',
+      'docs/SDK_COMPATIBILITY.md is incomplete',
+      'Policy must include SemVer rules and deprecation lifecycle',
+    );
+  }
+
+  const readmePath = path.join(ROOT, 'sdk', 'README.md');
+  const readme = readFile(readmePath) ?? '';
+  if (!readme.includes('SDK_COMPATIBILITY.md')) {
+    return fail(
+      'sdk-policy',
+      'sdk/README.md does not link to docs/SDK_COMPATIBILITY.md',
+      'Add a link to the policy in sdk/README.md',
+    );
+  }
+
+  return pass('sdk-policy', 'SDK compatibility and semantic versioning policy is documented and linked');
+}
+
 // ── Runner ────────────────────────────────────────────────────────────────────
 
 function runChecks(): void {
@@ -536,6 +576,7 @@ function runChecks(): void {
     checkDeploymentOrderGuidance,
     checkSdkCompatibilityNotes,
     checkArtifactHashDocumentation,
+    checkSdkCompatibilityPolicy,
   ];
 
   const results: CheckResult[] = checks.map(fn => {
@@ -573,6 +614,6 @@ function runChecks(): void {
   }
 }
 
-if (require.main === module) {
+if ((typeof require !== 'undefined' && require.main === module) || (typeof process !== 'undefined' && process.argv[1] && process.argv[1].includes('release-check.ts'))) {
   runChecks();
 }
