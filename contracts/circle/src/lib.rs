@@ -85,6 +85,8 @@ mod lifecycle_invariant_tests; // settle_round, deadline boundary, close arithme
 mod cancellation_invariants_tests; // cancellation and collateral recovery invariants (issue #689)
 #[cfg(test)]
 mod payout_integration_tests; // payout cross-contract boundary: token + reputation atomicity
+#[cfg(test)]
+mod payout_event_sequence_tests; // compound operation event ordering (docs/EVENTS.md)
 
 use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, contracttype, token, Address, Env, Symbol, Vec,
