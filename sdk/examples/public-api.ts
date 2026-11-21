@@ -143,3 +143,65 @@ export async function recover(
   const lookup = await client.lookupTransaction(hash);
   return lookup.ok ? lookup.value.status : "lookup_failed";
 }
+
+// ─── Network identity, error taxonomy, and lifecycle (issues #900–#903) ──────
+
+import {
+  resolveNetworkIdentity,
+  classifySdkError,
+  txLifecycleFromResult,
+  txLifecycleFromLookup,
+  RETRY_POLICY,
+  type NetworkIdentity,
+  type SdkErrorInfo,
+  type TxLifecycle,
+} from "@circleup/sdk";
+
+/** A custom (standalone) network needs its name, URL, and passphrase together. */
+export function standaloneIdentity(): NetworkIdentity {
+  return resolveNetworkIdentity({
+    network: "custom",
+    rpcUrl: "http://localhost:8000/soroban/rpc",
+    networkPassphrase: "Standalone Network ; February 2017",
+  });
+}
+
+/** Branch on the stable error code — never on message text. */
+export function errorBanner(err: unknown): { text: string; info: SdkErrorInfo } {
+  const info = classifySdkError(err);
+  switch (info.code) {
+    case "wallet_rejected":
+      return { text: "You declined the signature.", info };
+    case "network_mismatch":
+      return { text: "Switch your wallet to the configured network.", info };
+    case "send_ambiguous":
+    case "poll_timeout":
+      return { text: `Checking transaction ${info.txHash ?? ""}…`, info };
+    default:
+      return { text: info.message, info };
+  }
+}
+
+/**
+ * Settle a write without resubmitting: a local polling timeout is `pending`,
+ * so resume by hash instead of sending a second transaction.
+ */
+export async function settle(client: CircleUpClient, result: TxResult): Promise<TxLifecycle> {
+  let state = txLifecycleFromResult(result);
+  if (state.state === "pending" || state.state === "submitted" || state.state === "unavailable") {
+    if (!state.txHash) return state;
+    const validUntil = isTxFailure(result) ? result.diagnostics?.validUntil : undefined;
+    // Resume polling after the original budget ran out (no new signature).
+    state = txLifecycleFromResult(await client.waitForTransaction(state.txHash, { validUntil }));
+    if (state.state === "unavailable" && state.txHash) {
+      state = txLifecycleFromLookup(await client.lookupTransaction(state.txHash), {
+        txHash: state.txHash,
+        validUntil,
+      });
+    }
+  }
+  return state;
+}
+
+/** Writes never resend a new transaction automatically; reads retry a bounded number of times. */
+export const sendRetries = RETRY_POLICY.submission.retries; // "same_envelope"

@@ -9,14 +9,25 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- **Unified repository verification commands** (#974 / #138):
-  `npm run verify:fast` runs the offline local suite (SDK build + tests,
-  indexer/app/scripts typecheck + unit tests, `format:check`) and
-  `npm run verify:full` adds contracts `cargo test`, indexer Postgres
-  integration tests, app build + Playwright visual tests, SDK `check:api`,
-  `verify-artifacts`, `release-check`, and `check:toolchain`. Both run
-  checks in a deterministic order, preserve child exit codes, and report
-  skipped checks explicitly with their prerequisites.
+- **Explicit SDK retry policy** (#900): `RETRY_POLICY` documents per-stage
+  retry rules (bounded read retries with backoff, no wallet retries,
+  submission resends only the identical envelope), and `classifyRpcFailure`
+  classifies provider errors as throttled / transient / cancelled / permanent.
+- **Stable SDK error taxonomy** (#901): `classifySdkError`, `classifyTxFailure`,
+  `classifyWalletFailure` and `SdkError` map every failure to
+  `{ stage, code, retry, retryable, txHash?, message }` with SDK-authored,
+  log-safe messages. Unknown errors classify as `"unknown"`.
+- **Typed transaction lifecycle** (#902): `txLifecycleFromResult` /
+  `txLifecycleFromLookup` return `not_applied | submitted | pending |
+  confirmed | failed | unavailable`, so a local polling timeout is never
+  read as an on-chain failure. `CircleUpClient.waitForTransaction(hash)`
+  resumes confirmation by hash without resubmitting.
+- **Network identity binding** (#903): optional `CircleUpConfig.network`
+  (`"testnet" | "mainnet" | "custom"`), `resolveNetworkIdentity`,
+  `getNetworkIdentity`, `getResolvedConfig` and `explorerLink`. Inconsistent
+  name / passphrase / preset-URL combinations are rejected at construction,
+  and writes fail with the new `"network_mismatch"` code if the config is
+  mutated afterwards.
 - **Cursor pagination for history scans** (#898):
   `GET /circles/:address/activity` and `GET /members/:member/contributions`
   accept an opaque `?cursor=` keyset token with a deterministic tie-breaker.
