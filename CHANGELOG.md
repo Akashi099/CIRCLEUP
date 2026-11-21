@@ -9,6 +9,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Unified repository verification commands** (#974 / #138):
+  `npm run verify:fast` runs the offline local suite (SDK build + tests,
+  indexer/app/scripts typecheck + unit tests, `format:check`) and
+  `npm run verify:full` adds contracts `cargo test`, indexer Postgres
+  integration tests, app build + Playwright visual tests, SDK `check:api`,
+  `verify-artifacts`, `release-check`, and `check:toolchain`. Both run
+  checks in a deterministic order, preserve child exit codes, and report
+  skipped checks explicitly with their prerequisites.
 - **Cursor pagination for history scans** (#898):
   `GET /circles/:address/activity` and `GET /members/:member/contributions`
   accept an opaque `?cursor=` keyset token with a deterministic tie-breaker.
