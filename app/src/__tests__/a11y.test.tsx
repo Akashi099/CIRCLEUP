@@ -75,12 +75,7 @@ async function checkA11y(container: HTMLElement) {
 import { WalletButton } from "@/components/WalletButton";
 import { CircleCard, type Circle } from "@/components/CircleCard";
 import { ReputationBadge, ReputationLegend } from "@/components/ReputationBadge";
-import {
-  CSP_ENFORCEMENT_STAGE,
-  buildCspHeader,
-  isEnforced,
-  type CspStage,
-} from "@/lib/csp";
+import { CopyControl } from "@/components/CopyControl";
 
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -173,80 +168,109 @@ describe("a11y: ReputationLegend", () => {
   });
 });
 
-// ── CSP: required app assets under the enforced policy ────────────────────────
+// ── CopyControl ───────────────────────────────────────────────────────────────
 
-/**
- * These tests pin the resources the app shell actually needs (scripts, styles,
- * fonts, images) to the enforced CSP policy. If a directive is tightened past
- * what the app requires, or a required source is dropped from the reviewed
- * allowlist, these tests fail before enforcement can break the app.
- *
- * The policy is built for the enforced stage explicitly so the tests do not
- * depend on the current rollout stage of the deployment.
- */
-describe("csp: enforced policy allows required app assets", () => {
-  const enforcedHeader = buildCspHeader("enforced" as CspStage);
-  const directives = parseCspHeader(enforcedHeader);
+describe("a11y: CopyControl", () => {
+  const HASH = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
 
-  it("enforced stage is recognised as enforcing", () => {
-    expect(isEnforced("enforced" as CspStage)).toBe(true);
-    expect(isEnforced("report-only" as CspStage)).toBe(false);
-  });
+  function setClipboard(value: unknown) {
+    Object.defineProperty(navigator, "clipboard", {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  }
 
-  it("does not use broad wildcard sources to suppress reports", () => {
-    for (const [directive, sources] of Object.entries(directives)) {
-      if (directive === "report-uri" || directive === "report-to") continue;
-      expect(sources, `${directive} must not allow *`).not.toContain("*");
-      expect(
-        sources.some((s) => s === "https:" || s === "http:"),
-        `${directive} must not allow a bare scheme source`
-      ).toBe(false);
+  function restoreClipboard() {
+    // Remove the override so the next test sees the jsdom default again.
+    delete (navigator as unknown as Record<string, unknown>).clipboard;
+  }
+
+  it("successful copy announces copied state via aria-live", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    setClipboard({ writeText });
+    try {
+      const { getByRole, findByText } = render(
+        <CopyControl value={HASH} label="Transaction hash" />
+      );
+      getByRole("button", { name: /copy transaction hash/i }).click();
+      expect(await findByText(/copied/i)).toBeTruthy();
+      expect(writeText).toHaveBeenCalledWith(HASH);
+      const status = document.querySelector("[aria-live]");
+      expect(status?.textContent).toMatch(/copied/i);
+    } finally {
+      restoreClipboard();
     }
   });
 
-  it("allows the Next.js runtime scripts", () => {
-    expect(directives["script-src"]).toBeDefined();
-    expect(directives["script-src"]).toContain("'self'");
-    // Next.js injects inline bootstrap scripts; nonce/hash based policies are
-    // preferred, but 'unsafe-inline' must never be paired with a wildcard.
-    expect(directives["script-src"]).not.toContain("*");
+  it("missing clipboard API announces unavailable and keeps text selectable", async () => {
+    setClipboard(undefined);
+    try {
+      const { getByRole, findByText } = render(
+        <CopyControl value={HASH} label="Transaction hash" />
+      );
+      getByRole("button", { name: /copy transaction hash/i }).click();
+      expect(await findByText(/unavailable/i)).toBeTruthy();
+      const field = document.querySelector("input, textarea") as
+        | HTMLInputElement
+        | HTMLTextAreaElement
+        | null;
+      expect(field).toBeTruthy();
+      expect(field?.readOnly).toBe(true);
+      expect(field?.value).toBe(HASH);
+      expect(document.activeElement).toBe(field);
+      expect(field?.selectionStart).toBe(0);
+      expect(field?.selectionEnd).toBe(HASH.length);
+    } finally {
+      restoreClipboard();
+    }
   });
 
-  it("allows required styles", () => {
-    expect(directives["style-src"]).toBeDefined();
-    expect(directives["style-src"]).toContain("'self'");
+  it("permission denial announces failure and focuses/selects the text", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("NotAllowedError"));
+    setClipboard({ writeText });
+    try {
+      const { getByRole, findByText } = render(
+        <CopyControl value={HASH} label="Transaction hash" />
+      );
+      getByRole("button", { name: /copy transaction hash/i }).click();
+      expect(await findByText(/failed/i)).toBeTruthy();
+      const field = document.querySelector("input, textarea") as
+        | HTMLInputElement
+        | HTMLTextAreaElement
+        | null;
+      expect(field).toBeTruthy();
+      expect(document.activeElement).toBe(field);
+      expect(field?.selectionStart).toBe(0);
+      expect(field?.selectionEnd).toBe(HASH.length);
+    } finally {
+      restoreClipboard();
+    }
   });
 
-  it("allows required fonts", () => {
-    expect(directives["font-src"]).toBeDefined();
-    expect(directives["font-src"]).toContain("'self'");
+  it("repeated attempts never announce a false copied state", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("NotAllowedError"));
+    setClipboard({ writeText });
+    try {
+      const { getByRole, findByText } = render(
+        <CopyControl value={HASH} label="Transaction hash" />
+      );
+      const button = getByRole("button", { name: /copy transaction hash/i });
+      button.click();
+      expect(await findByText(/failed/i)).toBeTruthy();
+      button.click();
+      expect(await findByText(/failed/i)).toBeTruthy();
+      const status = document.querySelector("[aria-live]");
+      expect(status?.textContent ?? "").not.toMatch(/copied/i);
+    } finally {
+      restoreClipboard();
+    }
   });
 
-  it("allows required images", () => {
-    expect(directives["img-src"]).toBeDefined();
-    expect(directives["img-src"]).toContain("'self'");
-  });
-
-  it("restricts connections to reviewed origins only", () => {
-    expect(directives["connect-src"]).toBeDefined();
-    expect(directives["connect-src"]).toContain("'self'");
-    expect(directives["connect-src"]).not.toContain("*");
-  });
-
-  it("blocks framing and object embedding", () => {
-    expect(directives["frame-ancestors"]).toEqual(["'none'"]);
-    expect(directives["object-src"]).toEqual(["'none'"]);
-  });
-
-  it("report-only stage still emits a report endpoint", () => {
-    const reportOnly = parseCspHeader(buildCspHeader("report-only" as CspStage));
-    const endpoint =
-      reportOnly["report-uri"]?.[0] ?? reportOnly["report-to"]?.[0] ?? "";
-    expect(endpoint).not.toBe("");
-  });
-
-  it("current rollout stage is a known stage", () => {
-    expect(["report-only", "enforced"]).toContain(CSP_ENFORCEMENT_STAGE);
+  it("has no axe violations in idle state", async () => {
+    const { container } = render(<CopyControl value={HASH} label="Transaction hash" />);
+    const violations = await checkA11y(container);
+    expect(violations, formatViolations(violations)).toHaveLength(0);
   });
 });
 

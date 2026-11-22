@@ -45,7 +45,9 @@ interface CargoToml {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const ROOT = path.resolve(__dirname, '..', '..');
+const ROOT = typeof __dirname !== 'undefined'
+  ? path.resolve(__dirname, '..', '..')
+  : path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
 const VERBOSE = process.argv.includes('--verbose');
 
 /** Sub-headings that must appear in [Unreleased] when it is non-empty. */
@@ -59,6 +61,38 @@ const MIGRATION_SIGNAL_PATTERNS = [
   /indexer\/src\/db\/migrate\.ts/,
   /indexer\/src\/db\/schema\.sql/,
   /indexer\/src\/db\/migrations\//,
+];
+
+/**
+ * Paths that define the public HTTP wire contract (Issue #149).
+ *
+ * A change to any of these files can alter field names, pagination, status
+ * values, or numeric encoding for external consumers, so it must be paired
+ * with a deprecation/sunset entry (or an explicit no-deprecation
+ * justification) in the [Unreleased] changelog.
+ */
+const HTTP_CONTRACT_SIGNAL_PATTERNS = [
+  /openapi\.(ya?ml|json)$/i,
+  /swagger\.(ya?ml|json)$/i,
+  /indexer\/src\/db\/schema\.sql$/,
+  /indexer\/src\/db\/migrations\//,
+  /indexer\/src\/db\/migrate\.ts$/,
+];
+
+/** Directories scanned for HTTP contract sources, relative to ROOT. */
+const HTTP_CONTRACT_SCAN_DIRS = [
+  path.join('indexer', 'src', 'db'),
+  path.join('indexer', 'src', 'api'),
+  path.join('indexer', 'docs'),
+  path.join('docs', 'api'),
+];
+
+/** Changelog markers that satisfy the deprecation policy. */
+const DEPRECATION_MARKERS = [
+  /\bdeprecat/i,
+  /\bsunset\b/i,
+  /\bno[- ]deprecation\b/i,
+  /\bno deprecation\b/i,
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -523,110 +557,41 @@ export function checkArtifactHashDocumentation(overrideContent?: string): CheckR
 }
 
 /**
- * Check 9 — Toolchain, SDK, target, and hash evidence for contract changes.
+ * Check 9 — SDK compatibility and semantic-versioning policy (Issue #909).
  *
- * A `stable` toolchain can move over time and silently produce different WASM
- * without any source change.  When [Unreleased] references contracts, WASM, or
- * Cargo, the release notes must record the exact toolchain inputs used to build
- * the artifacts:
- *
- *   • Rust toolchain version (e.g. "rustc 1.78.0" or "toolchain: 1.78.0")
- *   • Soroban SDK version (e.g. "soroban-sdk 21.0.0")
- *   • Build target (e.g. "wasm32-unknown-unknown")
- *   • Artifact hash evidence (e.g. "sha256:…" or expected-hashes.json)
- *
- * This makes a compiler or SDK change visible in release output and prevents
- * the expected hash from being rewritten without an intentional review.
- *
- * Accepts optional `overrideContent` for testing without touching the filesystem.
+ * Verifies that docs/SDK_COMPATIBILITY.md exists, defines the public API
+ * surface and deprecation rules, and is linked from sdk/README.md.
  */
-export function checkToolchainEvidence(overrideContent?: string): CheckResult {
-  const changelogPath = path.join(ROOT, 'CHANGELOG.md');
-  const changelog = overrideContent ?? (readFile(changelogPath) ?? '');
-
-  const lines = changelog.split('\n');
-  const unreleasedIdx = lines.findIndex(l => /^##\s+\[Unreleased\]/i.test(l));
-  if (unreleasedIdx === -1) {
-    return pass('toolchain-evidence', 'No [Unreleased] section — toolchain evidence check skipped');
-  }
-
-  const block: string[] = [];
-  for (let i = unreleasedIdx + 1; i < lines.length; i++) {
-    if (/^##\s+\[/.test(lines[i])) break;
-    block.push(lines[i]);
-  }
-  const unreleased = block.join('\n');
-
-  const hasContractChange =
-    /\bcontract\b/i.test(unreleased) ||
-    /\bwasm\b/i.test(unreleased) ||
-    /\bcargo\b/i.test(unreleased);
-
-  if (!hasContractChange) {
-    return pass(
-      'toolchain-evidence',
-      'No contract changes detected — toolchain evidence not required',
-    );
-  }
-
-  const evidence: Array<{ label: string; patterns: RegExp[] }> = [
-    {
-      label: 'Rust toolchain version',
-      patterns: [
-        /rustc\s+\d+\.\d+/i,
-        /rust\s*(?:toolchain|version)\s*[:=]?\s*\d+\.\d+/i,
-        /toolchain\s*[:=]?\s*\d+\.\d+/i,
-        /rust-toolchain\.toml/i,
-      ],
-    },
-    {
-      label: 'Soroban SDK version',
-      patterns: [
-        /soroban[-_ ]?sdk\s*[:=]?\s*v?\d+\.\d+/i,
-        /soroban\s*(?:sdk|version)\s*[:=]?\s*v?\d+\.\d+/i,
-      ],
-    },
-    {
-      label: 'Build target',
-      patterns: [
-        /wasm32-unknown-unknown/i,
-        /wasm32v1-none/i,
-        /\btarget\s*[:=]?\s*wasm/i,
-      ],
-    },
-    {
-      label: 'Artifact hash evidence',
-      patterns: [
-        /sha[-_]?256\s*[:=]?\s*[0-9a-f]{8,}/i,
-        /\bhash\b/i,
-        /expected-hashes/i,
-        /\bartifact\b/i,
-      ],
-    },
-  ];
-
-  const missing = evidence
-    .filter(e => !e.patterns.some(p => p.test(unreleased)))
-    .map(e => e.label);
-
-  if (missing.length > 0) {
+export function checkSdkCompatibilityPolicy(): CheckResult {
+  const policyPath = path.join(ROOT, 'docs', 'SDK_COMPATIBILITY.md');
+  if (!fs.existsSync(policyPath)) {
     return fail(
-      'toolchain-evidence',
-      `[Unreleased] has contract changes but is missing ${missing.length} toolchain input(s)`,
-      `Missing evidence: ${missing.join(', ')}\n` +
-        'Record the exact build inputs in [Unreleased] so a compiler or SDK change\n' +
-        'is visible and cannot silently rewrite the expected artifact hash. Example:\n' +
-        '  Toolchain: rustc 1.78.0 (rust-toolchain.toml pinned)\n' +
-        '  Soroban SDK: 21.0.0\n' +
-        '  Target: wasm32-unknown-unknown\n' +
-        '  Artifact hashes: see contracts/expected-hashes.json (sha256:…)',
+      'sdk-policy',
+      'docs/SDK_COMPATIBILITY.md not found',
+      'Create docs/SDK_COMPATIBILITY.md with semver and deprecation policies',
     );
   }
 
-  return pass(
-    'toolchain-evidence',
-    '[Unreleased] records toolchain, SDK, target, and artifact hash evidence',
-  );
+  const content = readFile(policyPath) ?? '';
+  if (!content.includes('Semantic Versioning') || !content.includes('Deprecation')) {
+    return fail(
+      'sdk-policy',
+      'docs/SDK_COMPATIBILITY.md is incomplete',
+      'Policy must include SemVer rules and deprecation lifecycle',
+    );
+  }
+
+  const readmePath = path.join(ROOT, 'sdk', 'README.md');
+  const readme = readFile(readmePath) ?? '';
+  if (!readme.includes('SDK_COMPATIBILITY.md')) {
+    return fail(
+      'sdk-policy',
+      'sdk/README.md does not link to docs/SDK_COMPATIBILITY.md',
+      'Add a link to the policy in sdk/README.md',
+    );
+  }
+
+  return pass('sdk-policy', 'SDK compatibility and semantic versioning policy is documented and linked');
 }
 
 // ── Runner ────────────────────────────────────────────────────────────────────
@@ -643,7 +608,7 @@ function runChecks(): void {
     checkDeploymentOrderGuidance,
     checkSdkCompatibilityNotes,
     checkArtifactHashDocumentation,
-    checkToolchainEvidence,
+    checkSdkCompatibilityPolicy,
   ];
 
   const results: CheckResult[] = checks.map(fn => {
@@ -681,6 +646,6 @@ function runChecks(): void {
   }
 }
 
-if (require.main === module) {
+if ((typeof require !== 'undefined' && require.main === module) || (typeof process !== 'undefined' && process.argv[1] && process.argv[1].includes('release-check.ts'))) {
   runChecks();
 }

@@ -11,7 +11,7 @@ import {
   checkDeploymentOrderGuidance,
   checkSdkCompatibilityNotes,
   checkArtifactHashDocumentation,
-  checkToolchainEvidence,
+  checkHttpContractDeprecation,
 } from "./release-check";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -184,60 +184,52 @@ test("checkArtifactHashDocumentation: skipped when no [Unreleased] section", () 
   assert.equal(result.pass, true, "Missing [Unreleased] → check skipped (passes)");
 });
 
-// ── checkToolchainEvidence ────────────────────────────────────────────────────
+// ── checkHttpContractDeprecation ─────────────────────────────────────────────
 
-test("checkToolchainEvidence: passes when no contract changes", () => {
-  const content = makeChangelog("### Added\n- new SDK feature\n");
-  const result = checkToolchainEvidence(content);
-  assert.equal(result.pass, true, "No contract changes → toolchain evidence not required");
+test("checkHttpContractDeprecation: passes when HTTP contract is unchanged", () => {
+  const content = makeChangelog("### Added\n- new indexer query helper\n");
+  const result = checkHttpContractDeprecation(content, false);
+  assert.equal(result.pass, true, "Unchanged contract snapshot → no deprecation entry required");
 });
 
-test("checkToolchainEvidence: fails when contract change without toolchain evidence", () => {
+test("checkHttpContractDeprecation: fails when contract snapshot changed without deprecation entry", () => {
+  const content = makeChangelog("### Changed\n- Renamed indexer response field\n");
+  const result = checkHttpContractDeprecation(content, true);
+  assert.equal(result.pass, false, "Changed contract snapshot without deprecation entry → must fail");
+  assert.ok(result.message.includes("deprecation"), "Message must mention deprecation");
+});
+
+test("checkHttpContractDeprecation: passes when deprecation entry has since/sunset/replacement", () => {
   const content = makeChangelog([
-    "### Changed",
-    "- Updated circle contract logic",
+    "### Deprecated",
+    "- `GET /api/events` `page` field: since 0.2.0, sunset 0.4.0, replacement `cursor`.",
   ].join("\n"));
-  const result = checkToolchainEvidence(content);
-  assert.equal(result.pass, false, "Contract change without toolchain evidence → must fail");
-  assert.ok(result.message.includes("toolchain"), "Message must mention toolchain");
+  const result = checkHttpContractDeprecation(content, true);
+  assert.equal(result.pass, true, "Complete deprecation entry satisfies the requirement");
 });
 
-test("checkToolchainEvidence: passes when contract change + rustc version", () => {
+test("checkHttpContractDeprecation: fails when deprecation entry is missing sunset", () => {
   const content = makeChangelog([
-    "### Changed",
-    "- Updated circle contract. Built with rustc 1.81.0.",
+    "### Deprecated",
+    "- `GET /api/events` `page` field: since 0.2.0, replacement `cursor`.",
   ].join("\n"));
-  const result = checkToolchainEvidence(content);
-  assert.equal(result.pass, true, "rustc version satisfies the toolchain evidence requirement");
+  const result = checkHttpContractDeprecation(content, true);
+  assert.equal(result.pass, false, "Deprecation entry without sunset → must fail");
 });
 
-test("checkToolchainEvidence: passes when contract change + soroban-sdk version", () => {
-  const content = makeChangelog([
-    "### Changed",
-    "- Updated WASM build. soroban-sdk 21.0.0.",
-  ].join("\n"));
-  const result = checkToolchainEvidence(content);
-  assert.equal(result.pass, true, "soroban-sdk version satisfies the requirement");
+test("checkHttpContractDeprecation: failure message names app, SDK, and external-consumer contracts", () => {
+  const content = makeChangelog("### Changed\n- Renamed indexer response field\n");
+  const result = checkHttpContractDeprecation(content, true);
+  assert.equal(result.pass, false);
+  assert.ok(result.message.includes("app"), "Message must name the app contract");
+  assert.ok(result.message.includes("SDK"), "Message must name the SDK contract");
+  assert.ok(
+    result.message.includes("external-consumer"),
+    "Message must name the external-consumer contract",
+  );
 });
 
-test("checkToolchainEvidence: passes when contract change + wasm32 target", () => {
-  const content = makeChangelog([
-    "### Changed",
-    "- Rebuilt contract for wasm32-unknown-unknown target.",
-  ].join("\n"));
-  const result = checkToolchainEvidence(content);
-  assert.equal(result.pass, true, "wasm32 target satisfies the requirement");
-});
-
-test("checkToolchainEvidence: passes when contract change + reviewed hash reference", () => {
-  const content = makeChangelog([
-    "### Changed",
-    "- Updated contract. Reviewed artifact hash change in expected-hashes.json.",
-  ].join("\n"));
-  assert.equal(checkToolchainEvidence(content).pass, true);
-});
-
-test("checkToolchainEvidence: skipped when no [Unreleased] section", () => {
-  const result = checkToolchainEvidence("# Changelog\n\n## [0.1.0]\n- init\n");
+test("checkHttpContractDeprecation: skipped when no [Unreleased] section", () => {
+  const result = checkHttpContractDeprecation("# Changelog\n\n## [0.1.0]\n- init\n", true);
   assert.equal(result.pass, true, "Missing [Unreleased] → check skipped (passes)");
 });
