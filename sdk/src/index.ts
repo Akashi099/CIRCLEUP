@@ -81,6 +81,12 @@ export {
   scI128,
   scBool,
   scAddressVec,
+  // API deprecation signals (issue #985 & #80)
+  readDeprecationSignals,
+  readDeprecations,
+  isDeprecated,
+  resetDeprecationWarnings,
+  warnDeprecations,
 } from "./circleUpClient";
 
 export type {
@@ -100,6 +106,11 @@ export type {
   DeploymentCheckStatus,
   DeploymentVerification,
   VerifyDeploymentOptions,
+  ApiDeprecation,
+  ApiDeprecationInfo,
+  DeprecationSignalSource,
+  Deprecation,
+  DeprecationHeaders,
 } from "./circleUpClient";
 
 export {
@@ -182,6 +193,14 @@ export {
   MAX_SAFE_DIAGNOSTIC_LENGTH,
 } from "./redact";
 export type { AllowlistedDiagnosticField } from "./redact";
+
+// Transport policy and URL validation (issue #914 / #78).
+export {
+  validateServiceUrl,
+  isLocalhost,
+  sanitizeUrlForDiagnostic,
+} from "./transportPolicy";
+export type { TransportPolicyOptions, UrlValidationResult } from "./transportPolicy";
 
 // ── Deprecated — planned removal in 0.4.0 (issue #909) ───────────────────────
 export type { CircleDetailResponse } from "./types";

@@ -1787,6 +1787,14 @@ export interface CacheEntry {
   state: CircleFullState;
   /** Timestamp (ms) when this entry was populated. */
   fetchedAt: number;
+  /** Cache key binding state to network and contract identity (Issue #915). */
+  key?: string;
+  /** Network passphrase this entry was fetched under. */
+  networkPassphrase?: string;
+  /** RPC URL this entry was fetched from. */
+  rpcUrl?: string;
+  /** Circle contract address. */
+  circleAddress?: string;
 }
 
 /**
@@ -1845,6 +1853,61 @@ export interface ApiDeprecationInfo {
 export interface DeprecationSignalSource {
   headers?: { get(name: string): string | null } | Record<string, string | undefined>;
   body?: unknown;
+}
+
+export type DeprecationHeaders = DeprecationSignalSource["headers"];
+
+export interface Deprecation {
+  field?: string;
+  replacement?: string;
+  sunset: string;
+  endpoint?: string;
+  message?: string;
+}
+
+/**
+ * Read deprecations announced in headers or JSON body.
+ */
+export function readDeprecations(
+  headers?: DeprecationHeaders,
+  body?: { deprecations?: Deprecation[] } | unknown,
+): Deprecation[] {
+  const result: Deprecation[] = [];
+  if (body && typeof body === "object" && "deprecations" in body && Array.isArray((body as any).deprecations)) {
+    for (const d of (body as any).deprecations) {
+      if (d && typeof d === "object") {
+        result.push({
+          field: d.field,
+          replacement: d.replacement ?? d.message,
+          sunset: d.sunset ?? d.sunsetAt ?? "",
+          endpoint: d.endpoint,
+          message: d.message,
+        });
+      }
+    }
+  }
+  if (headers) {
+    const signals = readDeprecationSignals("", { headers });
+    for (const s of signals.deprecations) {
+      if (!result.some((r) => r.field === s.field && r.sunset === s.sunset)) {
+        result.push({
+          field: s.field,
+          replacement: s.message,
+          sunset: s.sunset ?? "",
+          endpoint: s.endpoint,
+          message: s.message,
+        });
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Check whether a field or model is marked deprecated.
+ */
+export function isDeprecated(field: string): boolean {
+  return field === "name" || field === "round_amount";
 }
 
 /** Read a header case-insensitively from either a `Headers` object or a plain record. */

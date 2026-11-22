@@ -97,10 +97,11 @@ export type IndexerObjectSchema = Record<string, IndexerFieldSpec>;
  * An endpoint schema entry: the field contracts plus optional endpoint-level
  * deprecation metadata (issue #149).
  */
-export interface IndexerEndpointSchema extends IndexerObjectSchema {
+export type IndexerEndpointSchema = {
+  [key: string]: IndexerFieldSpec | IndexerDeprecation | undefined;
   /** Deprecation window for the whole endpoint, when it is being retired. */
   deprecated?: IndexerDeprecation;
-}
+};
 
 /** One mismatch between a response body and its schema. */
 export interface IndexerSchemaViolation {
