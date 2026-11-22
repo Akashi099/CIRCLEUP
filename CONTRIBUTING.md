@@ -72,6 +72,30 @@ npm run verify:fast
 npm run verify:full
 ```
 
+### Verification tiers
+
+Two root commands run the existing package commands in a deterministic order.
+Each child command is executed directly (no shell pipelines, no `&&`/`&`
+chaining), so a failed child command always fails the parent command.
+
+| Command | Tier | What it runs |
+|---|---|---|
+| `npm run verify:fast` | Fast local feedback (offline, no external services) | SDK build + tests, indexer typecheck + unit tests, app typecheck + unit tests, scripts typecheck + tests, repository `format:check` |
+| `npm run verify:full` | Full release verification | Everything in the fast tier, plus contracts `cargo test`, indexer build + Postgres-backed integration tests, app build + Playwright visual tests, SDK `check:api`, `verify-artifacts`, `release-check`, and `check:toolchain` |
+
+Prerequisites for the full tier:
+
+- **Contracts:** Rust 1.81.0 with the `wasm32-unknown-unknown` target (`cargo` on `PATH`).
+- **Indexer integration tests:** `DATABASE_URL` pointing at a running Postgres instance.
+- **Visual tests:** Playwright browsers installed (`npx playwright install`), or set `VERIFY_VISUAL=1` to force the check.
+- **Toolchain check:** network access to the npm registry (set `VERIFY_OFFLINE=1` to skip it).
+
+Checks whose prerequisites are not met are **not silently dropped**: the runner
+prints `[SKIP] <check> — prerequisite not met: <prerequisite>` and repeats the
+skip in the final summary. The command still exits `0` when only skips occur,
+and exits `1` as soon as any executed check fails (remaining checks are reported
+as `NOT RUN`).
+
 See the [RUNBOOK](./docs/RUNBOOK.md) for full environment variable setup.
 
 ### Verification Tiers
