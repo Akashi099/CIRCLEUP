@@ -8,25 +8,29 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Deployment Order Guidance
+1. Run indexer migrations if applying schema changes.
+2. Deploy indexer service.
+3. Deploy frontend application and SDK consumers.
+
 ### Added
-- **Soroban resource budgets** (#868): `contracts/circle/tests/resource_budget_tests.rs`
-  measures instructions, memory, read/write entries and bytes, and event size
-  for `create`, `join`, `contribute`, `payout`, `default`, `cancel` and `close`
-  at 2 / 8 / 256 members. Each run writes `resource-report-<tier>.json` with
-  toolchain metadata and tolerances, and CI uploads the reports. See
-  `docs/RESOURCE_BUDGETS.md`.
-- **Release smoke-test matrix** (#865): `docs/RELEASE_SMOKE_TEST_MATRIX.md`
-  documents the four-layer testnet/mainnet matrix with sign-off and blocking
-  rules. `smoke-test.ts` gains resource-report, storage-fixture, SDK-fixture
-  and app-build evidence checks (warnings on testnet, failures on mainnet).
-  `smoke-write-gate.ts` restricts write-based smoke tests to funded,
-  disposable testnet accounts and refuses mainnet unconditionally. Added the
-  `smoke-test`, `smoke-test:mainnet` and `release:verify` scripts.
-- **Storage & upgrade compatibility matrix** (#867):
-  `docs/STORAGE_COMPATIBILITY.md` inventories each contract's keys, scopes,
-  initialization rules and upgrade paths. Historical-layout fixtures in
-  `contracts/fixtures/storage/` come with `storage_compatibility_tests.rs` for
-  circle, factory and reputation.
+- **SDK compatibility and semantic versioning policy** (#909): published
+  `docs/SDK_COMPATIBILITY.md` defining public export surface, pre-1.0 SemVer rules,
+  deprecation lifecycle, notice periods, and release checklist. Deprecated
+  `CircleDetailResponse` type alias with replacement `ApiCircleDetailResponse`
+  (planned removal in `0.4.0`).
+- **HTTP API schema validation fixtures** (#911): added representative,
+  deterministic fixtures in `sdk/src/fixtures/apiResponseFixtures.ts` directly
+  derived from canonical `docs/api/v1/openapi.json` contract. Validated via
+  `sdk/src/__tests__/apiSchemaFixtures.test.ts` to detect schema and SDK parser drift.
+- **Privacy-safe error diagnostics across HTTP and RPC error paths** (#912):
+  added SDK-level privacy protection in `sdk/src/redact.ts`, sanitizing private keys,
+  seed phrases, signed transaction XDR, URL credentials, and unbounded response bodies.
+  Documented privacy guarantees and opt-in logging policy.
+- **Independent multi-client SDK isolation** (#913): ensured `CircleUpClient`,
+  `CircleClient`, `FactoryClient`, `ReputationClient`, and `IndexerClient` maintain
+  isolated, immutable configurations (`this.config`, `pollConfig`, `readTimeoutMs`,
+  `txLogger`, cache). Mutating input configs cannot leak between instances.
 - **Explicit SDK retry policy** (#900): `RETRY_POLICY` documents per-stage
   retry rules (bounded read retries with backoff, no wallet retries,
   submission resends only the identical envelope), and `classifyRpcFailure`
