@@ -8,20 +8,29 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Deployment Order Guidance
+1. Run indexer migrations if applying schema changes.
+2. Deploy indexer service.
+3. Deploy frontend application and SDK consumers.
+
 ### Added
-- **Reusable token behavior fixtures** (#888): a shared named-mode fixture
-  (`success`, `insufficient funds`, `authorization rejected`, `explicit
-  transfer failure`) drives every circle token transfer site, asserts rollback
-  and event behavior, and keeps deployed-USDC trust assertions separate.
-- **Member-count boundary lifecycle tests** (#889): min/max member circles
-  exercise first and last rotation slots, counters, completion and close, while
-  factory tests prove out-of-range creation leaves the registry unchanged.
-- **Deadline ledger boundary specification** (#890): documented strict
-  `sequence > deadline_ledger` semantics with three-adjacent-ledger tests for
-  contribution, default and settlement, plus aligned SDK/app gating tests.
-- **Contract trust-boundary guide** (#896): `docs/CONTRACT_TRUST_BOUNDARIES.md`
-  separates code-enforced invariants, tooling checks and operator/user
-  assumptions, with evidence links for every high-impact claim.
+- **SDK compatibility and semantic versioning policy** (#909): published
+  `docs/SDK_COMPATIBILITY.md` defining public export surface, pre-1.0 SemVer rules,
+  deprecation lifecycle, notice periods, and release checklist. Deprecated
+  `CircleDetailResponse` type alias with replacement `ApiCircleDetailResponse`
+  (planned removal in `0.4.0`).
+- **HTTP API schema validation fixtures** (#911): added representative,
+  deterministic fixtures in `sdk/src/fixtures/apiResponseFixtures.ts` directly
+  derived from canonical `docs/api/v1/openapi.json` contract. Validated via
+  `sdk/src/__tests__/apiSchemaFixtures.test.ts` to detect schema and SDK parser drift.
+- **Privacy-safe error diagnostics across HTTP and RPC error paths** (#912):
+  added SDK-level privacy protection in `sdk/src/redact.ts`, sanitizing private keys,
+  seed phrases, signed transaction XDR, URL credentials, and unbounded response bodies.
+  Documented privacy guarantees and opt-in logging policy.
+- **Independent multi-client SDK isolation** (#913): ensured `CircleUpClient`,
+  `CircleClient`, `FactoryClient`, `ReputationClient`, and `IndexerClient` maintain
+  isolated, immutable configurations (`this.config`, `pollConfig`, `readTimeoutMs`,
+  `txLogger`, cache). Mutating input configs cannot leak between instances.
 - **Explicit SDK retry policy** (#900): `RETRY_POLICY` documents per-stage
   retry rules (bounded read retries with backoff, no wallet retries,
   submission resends only the identical envelope), and `classifyRpcFailure`
@@ -311,6 +320,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
   end-to-end threading through `CircleClient.join`)
 
 ### Changed
+- **Ledger-authoritative round deadlines** (#866): deadline state
+  (open / due / passed) now comes only from `deadline_ledger` vs.
+  `latestLedger` (`ledgerDeadlinePhase` in `app/src/lib/gating.ts`). Time
+  estimates are coarse and marked "≈", and they're hidden when ledger data is
+  missing or stale. The per-second countdown tick is gone. Urgency colour and
+  label now come from the same ledger thresholds. Seconds-per-ledger can be
+  set with `NEXT_PUBLIC_SECONDS_PER_LEDGER`.
 - **Indexer numeric wire format** (#897): every numeric response field now
   has exactly one documented JSON type (`docs/INDEXER_NUMERIC_WIRE_FORMAT.md`).
   Amounts are decimal strings, persisted BIGINT ledgers are decimal strings,
