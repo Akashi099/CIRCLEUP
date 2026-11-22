@@ -22,6 +22,7 @@ import {
   isTerminalStatus,
   type CircleLifecycleStatus,
 } from "./lifecycle";
+import { getStatusPresentation, isKnownStatus } from "./statusPresentation";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -118,6 +119,7 @@ export type GateResult = GateAllowed | GateBlocked;
 export type GateBlockReason =
   | "stale_snapshot"
   | "wrong_status"
+  | "unsupported_status"
   | "not_a_member"
   | "already_joined"
   | "already_contributed"
@@ -389,8 +391,6 @@ export function computeActionEligibility(
 ): GateResult {
   const nowMs  = opts.nowMs  ?? Date.now();
   const maxAge = opts.maxSnapshotAgeMs ?? DEFAULT_MAX_SNAPSHOT_AGE_MS;
-  const networkGate = checkNetworkGate(snapshot);
-  if (networkGate) return networkGate;
 
   switch (action) {
     case "join":       return gateJoin(snapshot, nowMs, maxAge);
