@@ -32,7 +32,12 @@ import {
   type CircleUpConfig,
   type NetworkConfig,
   type StateSnapshot,
+  // Deprecated symbol verification (issue #909 — planned removal in 0.4.0)
+  type CircleDetailResponse,
 } from "@circleup/sdk";
+
+/** Verified import of deprecated alias — removed in 0.4.0. */
+export type PublicApiDeprecatedAliasCheck = CircleDetailResponse;
 
 /** Construct the top-level client from the documented config shape. */
 export function makeClient(): CircleUpClient {

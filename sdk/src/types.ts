@@ -939,6 +939,14 @@ export interface ApiCircleDetailResponse {
   latestLedger: number | null;
 }
 
+/**
+ * Legacy alias for {@link ApiCircleDetailResponse}.
+ *
+ * @deprecated since 0.2.0 — use {@link ApiCircleDetailResponse} instead.
+ * Will be removed in 0.4.0.
+ */
+export type CircleDetailResponse = ApiCircleDetailResponse;
+
 /** Response body for GET /circles/:address/members */
 export interface ApiMembersResponse {
   totals?: { memberCount: number; totalCollateral: string; totalContributions: number };
