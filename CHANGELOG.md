@@ -311,6 +311,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
   end-to-end threading through `CircleClient.join`)
 
 ### Changed
+- **Ledger-authoritative round deadlines** (#866): deadline state
+  (open / due / passed) now comes only from `deadline_ledger` vs.
+  `latestLedger` (`ledgerDeadlinePhase` in `app/src/lib/gating.ts`). Time
+  estimates are coarse and marked "≈", and they're hidden when ledger data is
+  missing or stale. The per-second countdown tick is gone. Urgency colour and
+  label now come from the same ledger thresholds. Seconds-per-ledger can be
+  set with `NEXT_PUBLIC_SECONDS_PER_LEDGER`.
 - **Indexer numeric wire format** (#897): every numeric response field now
   has exactly one documented JSON type (`docs/INDEXER_NUMERIC_WIRE_FORMAT.md`).
   Amounts are decimal strings, persisted BIGINT ledgers are decimal strings,
