@@ -26,6 +26,7 @@ import {
   RpcReadCancelledError,
   optionalRead,
 } from './circleUpClient';
+import { redactSecrets, sanitizeEndpointUrl } from './redact';
 import {
   attachMetadata,
   normalizeNotInitializedError,
@@ -775,7 +776,7 @@ export class CircleClient extends CircleUpClient {
     }
   }
 
-  async getDefaults(member: string): Promise<number> {
+  async getDefaults(member: string, read?: ReadOptions): Promise<number> {
     const raw = await this.simulateAndReadOrThrow(
       this.circleAddress,
       "get_defaults",
@@ -1218,10 +1219,10 @@ export class IndexerError extends Error {
   readonly retryable: boolean;
 
   constructor(message: string, status: number, url: string, kind?: IndexerErrorKind) {
-    super(message);
+    super(redactSecrets(message));
     this.name = "IndexerError";
     this.status = status;
-    this.url = url;
+    this.url = sanitizeEndpointUrl(url);
     this.kind = kind ?? (status === 0 ? "network" : "http");
     this.retryable =
       this.kind === "network" ||
