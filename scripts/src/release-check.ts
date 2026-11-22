@@ -63,6 +63,38 @@ const MIGRATION_SIGNAL_PATTERNS = [
   /indexer\/src\/db\/migrations\//,
 ];
 
+/**
+ * Paths that define the public HTTP wire contract (Issue #149).
+ *
+ * A change to any of these files can alter field names, pagination, status
+ * values, or numeric encoding for external consumers, so it must be paired
+ * with a deprecation/sunset entry (or an explicit no-deprecation
+ * justification) in the [Unreleased] changelog.
+ */
+const HTTP_CONTRACT_SIGNAL_PATTERNS = [
+  /openapi\.(ya?ml|json)$/i,
+  /swagger\.(ya?ml|json)$/i,
+  /indexer\/src\/db\/schema\.sql$/,
+  /indexer\/src\/db\/migrations\//,
+  /indexer\/src\/db\/migrate\.ts$/,
+];
+
+/** Directories scanned for HTTP contract sources, relative to ROOT. */
+const HTTP_CONTRACT_SCAN_DIRS = [
+  path.join('indexer', 'src', 'db'),
+  path.join('indexer', 'src', 'api'),
+  path.join('indexer', 'docs'),
+  path.join('docs', 'api'),
+];
+
+/** Changelog markers that satisfy the deprecation policy. */
+const DEPRECATION_MARKERS = [
+  /\bdeprecat/i,
+  /\bsunset\b/i,
+  /\bno[- ]deprecation\b/i,
+  /\bno deprecation\b/i,
+];
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function readJson<T>(filePath: string): T | null {
