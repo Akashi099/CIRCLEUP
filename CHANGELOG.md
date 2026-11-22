@@ -125,6 +125,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
   links to the checklist.  The document explicitly states that completing the
   checklist does not replace a specialist security audit.
 
+### Fixed
+- **Deadline documentation and display consistency** (#890): corrected the
+  contradictory "strict on both sides" README claim, aligned the app's
+  exact-deadline label test with the contract, and replaced wall-clock default
+  eligibility tests with ledger-based ones.
+- **Stale authorization and custody documentation** (#896): corrected caller
+  signature claims for permissionless settlement methods, admin initialization
+  semantics, and non-existent on-chain admin rotation.
+
 ### Changed (SDK)
 - **Strict RPC decoding** (`sdk/src/types.ts`): reads now fail at the
   decoding boundary, with the method or field named, on wrong variants, absent
