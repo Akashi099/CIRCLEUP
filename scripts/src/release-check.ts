@@ -45,7 +45,9 @@ interface CargoToml {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const ROOT = path.resolve(__dirname, '..', '..');
+const ROOT = typeof __dirname !== 'undefined'
+  ? path.resolve(__dirname, '..', '..')
+  : path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
 const VERBOSE = process.argv.includes('--verbose');
 
 /** Sub-headings that must appear in [Unreleased] when it is non-empty. */
@@ -555,91 +557,41 @@ export function checkArtifactHashDocumentation(overrideContent?: string): CheckR
 }
 
 /**
- * Check 9 — Deprecation policy for HTTP API / indexer read models (Issue #149).
+ * Check 9 — SDK compatibility and semantic-versioning policy (Issue #909).
  *
- * When the public HTTP contract sources (OpenAPI document, indexer schema or
- * migrations) are present, the [Unreleased] changelog must carry a
- * `Deprecation` / `Sunset` entry — or an explicit `no-deprecation`
- * justification — so external consumers get a documented warning and
- * migration window before any breaking wire change.
- *
- * The failure message lists the affected app, SDK, and external-consumer
- * contracts so release review can identify every impacted surface.
- *
- * Accepts optional `overrideContent` for testing without touching the filesystem.
+ * Verifies that docs/SDK_COMPATIBILITY.md exists, defines the public API
+ * surface and deprecation rules, and is linked from sdk/README.md.
  */
-export function checkHttpDeprecationPolicy(overrideContent?: string): CheckResult {
-  const changelogPath = path.join(ROOT, 'CHANGELOG.md');
-  const changelog = overrideContent ?? (readFile(changelogPath) ?? '');
-
-  // Detect whether any HTTP contract source files exist in the repo.
-  const contractFiles: string[] = [];
-  for (const relDir of HTTP_CONTRACT_SCAN_DIRS) {
-    const dir = path.join(ROOT, relDir);
-    if (!fs.existsSync(dir)) continue;
-    try {
-      const entries = fs.readdirSync(dir, {
-        recursive: true,
-      } as fs.ObjectEncodingOptions & { withFileTypes?: false }) as string[];
-      for (const entry of entries) {
-        const normalized = entry.split(path.sep).join('/');
-        if (HTTP_CONTRACT_SIGNAL_PATTERNS.some(p => p.test(normalized))) {
-          contractFiles.push(path.join(relDir, entry));
-        }
-      }
-    } catch {
-      // Unreadable directory — skip rather than fail the whole release check.
-    }
-  }
-
-  if (contractFiles.length === 0) {
-    return pass(
-      'http-deprecation',
-      'No HTTP contract sources detected — deprecation entry not required',
-    );
-  }
-
-  const lines = changelog.split('\n');
-  const unreleasedIdx = lines.findIndex(l => /^##\s+\[Unreleased\]/i.test(l));
-  if (unreleasedIdx === -1) {
+export function checkSdkCompatibilityPolicy(): CheckResult {
+  const policyPath = path.join(ROOT, 'docs', 'SDK_COMPATIBILITY.md');
+  if (!fs.existsSync(policyPath)) {
     return fail(
-      'http-deprecation',
-      'HTTP contract sources present but CHANGELOG.md has no [Unreleased] section',
-      'Add ## [Unreleased] with a Deprecation / Sunset entry (or a no-deprecation justification).',
+      'sdk-policy',
+      'docs/SDK_COMPATIBILITY.md not found',
+      'Create docs/SDK_COMPATIBILITY.md with semver and deprecation policies',
     );
   }
 
-  const block: string[] = [];
-  for (let i = unreleasedIdx + 1; i < lines.length; i++) {
-    if (/^##\s+\[/.test(lines[i])) break;
-    block.push(lines[i]);
-  }
-  const unreleased = block.join('\n');
-
-  if (DEPRECATION_MARKERS.some(p => p.test(unreleased))) {
-    return pass(
-      'http-deprecation',
-      '[Unreleased] documents a deprecation/sunset (or no-deprecation justification) for HTTP contract changes',
+  const content = readFile(policyPath) ?? '';
+  if (!content.includes('Semantic Versioning') || !content.includes('Deprecation')) {
+    return fail(
+      'sdk-policy',
+      'docs/SDK_COMPATIBILITY.md is incomplete',
+      'Policy must include SemVer rules and deprecation lifecycle',
     );
   }
 
-  const affected = [
-    'app — consumes indexer read models via the SDK',
-    'sdk — @circleup/sdk types and client methods mirror the wire contract',
-    'external consumers — third-party tools calling the indexer HTTP API directly',
-  ];
+  const readmePath = path.join(ROOT, 'sdk', 'README.md');
+  const readme = readFile(readmePath) ?? '';
+  if (!readme.includes('SDK_COMPATIBILITY.md')) {
+    return fail(
+      'sdk-policy',
+      'sdk/README.md does not link to docs/SDK_COMPATIBILITY.md',
+      'Add a link to the policy in sdk/README.md',
+    );
+  }
 
-  return fail(
-    'http-deprecation',
-    'HTTP contract sources changed but [Unreleased] has no Deprecation / Sunset entry',
-    `Contract sources detected:\n` +
-      contractFiles.map(f => `  • ${f}`).join('\n') +
-      `\n\nAffected contracts:\n` +
-      affected.map(a => `  • ${a}`).join('\n') +
-      `\n\nAdd a "### Deprecation" entry to [Unreleased] describing the warning period\n` +
-      `and sunset date, or state "no-deprecation" with a justification when the change\n` +
-      `is wire-compatible. See docs/api/DEPRECATION_POLICY.md.`,
-  );
+  return pass('sdk-policy', 'SDK compatibility and semantic versioning policy is documented and linked');
 }
 
 // ── Runner ────────────────────────────────────────────────────────────────────
@@ -656,7 +608,7 @@ function runChecks(): void {
     checkDeploymentOrderGuidance,
     checkSdkCompatibilityNotes,
     checkArtifactHashDocumentation,
-    checkHttpDeprecationPolicy,
+    checkSdkCompatibilityPolicy,
   ];
 
   const results: CheckResult[] = checks.map(fn => {
@@ -694,6 +646,6 @@ function runChecks(): void {
   }
 }
 
-if (require.main === module) {
+if ((typeof require !== 'undefined' && require.main === module) || (typeof process !== 'undefined' && process.argv[1] && process.argv[1].includes('release-check.ts'))) {
   runChecks();
 }

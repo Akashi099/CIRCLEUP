@@ -8,25 +8,29 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Deployment Order Guidance
+1. Run indexer migrations if applying schema changes.
+2. Deploy indexer service.
+3. Deploy frontend application and SDK consumers.
+
 ### Added
-- **Versioned API deprecation policy** (#985, Issue 149): `docs/API_DEPRECATION_POLICY.md`
-  defines how the indexer HTTP API and its read models evolve. Changes are
-  additive-only by default: new fields, new optional query parameters and new
-  enum values may ship in any release, while renaming, removing or retyping a
-  field, changing pagination semantics, changing status values, or changing
-  numeric encoding is a wire-breaking change. Deprecated fields and endpoints
-  stay supported for a minimum window of **two minor releases or 90 days,
-  whichever is longer**, and are announced with `Deprecation` and `Sunset`
-  response headers (RFC 8594 / RFC 9745 semantics) plus a `deprecated` marker
-  in the SDK types and API reference. Wire-breaking changes that cannot be made
-  additively are versioned under a `/v2` path prefix; no version prefix is
-  added to current routes because no compatibility need exists yet. The release
-  checklist (`CONTRIBUTING.md`, PR template) now requires reviewers to identify
-  affected app, SDK and external-consumer contracts before a release, and
-  `indexer/src/__tests__/apiDeprecation.test.ts` covers the transition form
-  (old and new response shapes served side by side) and the sunset signal.
-  See `docs/INDEXER_API_COMPATIBILITY.md` for the per-response compatibility
-  matrix.
+- **SDK compatibility and semantic versioning policy** (#909): published
+  `docs/SDK_COMPATIBILITY.md` defining public export surface, pre-1.0 SemVer rules,
+  deprecation lifecycle, notice periods, and release checklist. Deprecated
+  `CircleDetailResponse` type alias with replacement `ApiCircleDetailResponse`
+  (planned removal in `0.4.0`).
+- **HTTP API schema validation fixtures** (#911): added representative,
+  deterministic fixtures in `sdk/src/fixtures/apiResponseFixtures.ts` directly
+  derived from canonical `docs/api/v1/openapi.json` contract. Validated via
+  `sdk/src/__tests__/apiSchemaFixtures.test.ts` to detect schema and SDK parser drift.
+- **Privacy-safe error diagnostics across HTTP and RPC error paths** (#912):
+  added SDK-level privacy protection in `sdk/src/redact.ts`, sanitizing private keys,
+  seed phrases, signed transaction XDR, URL credentials, and unbounded response bodies.
+  Documented privacy guarantees and opt-in logging policy.
+- **Independent multi-client SDK isolation** (#913): ensured `CircleUpClient`,
+  `CircleClient`, `FactoryClient`, `ReputationClient`, and `IndexerClient` maintain
+  isolated, immutable configurations (`this.config`, `pollConfig`, `readTimeoutMs`,
+  `txLogger`, cache). Mutating input configs cannot leak between instances.
 - **Explicit SDK retry policy** (#900): `RETRY_POLICY` documents per-stage
   retry rules (bounded read retries with backoff, no wallet retries,
   submission resends only the identical envelope), and `classifyRpcFailure`

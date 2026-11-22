@@ -568,11 +568,14 @@ export class CircleUpClient {
     // Bind the client to one network identity (issue #903). validateCircleUpConfig
     // has already rejected inconsistent combinations; this freezes the result.
     this.networkIdentity = resolveNetworkIdentity(config);
-    this.config = config;
+    this.config = Object.freeze({
+      ...config,
+      contracts: Object.freeze({ ...config.contracts }),
+    });
     this.rpc = new SorobanRpc.Server(config.rpcUrl, { allowHttp: true });
     // Merge caller-supplied overrides onto the defaults so every field is
     // always present and the polling loop never has to deal with undefined.
-    this.pollConfig = { ...DEFAULT_POLL_CONFIG, ...pollConfig };
+    this.pollConfig = Object.freeze({ ...DEFAULT_POLL_CONFIG, ...pollConfig });
     validatePollConfig(this.pollConfig);
   }
 
@@ -603,6 +606,13 @@ export class CircleUpClient {
    */
   getNetworkIdentity(): NetworkIdentity {
     return this.networkIdentity;
+  }
+
+  /**
+   * The polling configuration bound to this client instance (frozen).
+   */
+  getPollConfig(): Readonly<Required<PollConfig>> {
+    return this.pollConfig;
   }
 
   /**

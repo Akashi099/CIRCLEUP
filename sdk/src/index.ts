@@ -132,6 +132,17 @@ export type {
   SignWithWalletOptions,
 } from "./walletAdapter";
 
+// bigint serialization helpers (Issue #908)
+export {
+  bigintToDecimalString,
+  decimalStringToBigInt,
+  bigintReplacer,
+  bigintReviver,
+  serializeWithBigInt,
+  deserializeWithBigInt,
+} from "./serialization";
+export type { BigIntWireString } from "./serialization";
+
 export { transactionSupport } from "./support";
 export type { SupportSummary } from "./support";
 
@@ -157,3 +168,19 @@ export type {
   TxChainFailed,
   TxUnavailable,
 } from "./lifecycle";
+
+// Privacy-safe diagnostics and redaction (issue #912).
+export {
+  redactSecrets,
+  redactAddresses,
+  sanitizeEndpointUrl,
+  isSafeTxHash,
+  sanitizeDiagnosticsRecord,
+  ALLOWLISTED_DIAGNOSTIC_FIELDS,
+  MAX_SAFE_DIAGNOSTIC_LENGTH,
+} from "./redact";
+export type { AllowlistedDiagnosticField } from "./redact";
+
+// ── Deprecated — planned removal in 0.4.0 (issue #909) ───────────────────────
+export type { CircleDetailResponse } from "./types";
+
