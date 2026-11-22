@@ -132,6 +132,17 @@ export type {
   SignWithWalletOptions,
 } from "./walletAdapter";
 
+// bigint serialization helpers (Issue #908)
+export {
+  bigintToDecimalString,
+  decimalStringToBigInt,
+  bigintReplacer,
+  bigintReviver,
+  serializeWithBigInt,
+  deserializeWithBigInt,
+} from "./serialization";
+export type { BigIntWireString } from "./serialization";
+
 export { transactionSupport } from "./support";
 export type { SupportSummary } from "./support";
 
