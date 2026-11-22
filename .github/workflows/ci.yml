@@ -71,6 +71,13 @@ jobs:
         run: npm run format:check
         continue-on-error: true
 
+      # Issue #916: Compile and execute public SDK examples in CI
+      - name: Typecheck public examples against SDK (Issue #916)
+        run: npm run typecheck:examples
+
+      - name: Execute deterministic public SDK examples in CI (Issue #916)
+        run: npm run test:examples
+
       # Issue #464: Run contract fixture tests as an explicit, named step so a
       # signature change surfaces as "Contract fixture tests" in the CI summary
       # rather than disappearing into the general test output.

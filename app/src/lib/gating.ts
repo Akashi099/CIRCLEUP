@@ -172,7 +172,12 @@ function checkNetworkGate(snap: AppStateSnapshot): GateBlocked | null {
 
 // ─── Per-action gate logic ────────────────────────────────────────────────────
 
-function gateJoin(snap: AppStateSnapshot, nowMs: number, maxAge: number): GateResult {
+function gateJoin(
+  snap: AppStateSnapshot,
+  nowMs: number,
+  maxAge: number,
+  opts: { memberAddress?: string } = {},
+): GateResult {
   if (!isSnapshotFresh(snap.fetchedAtMs, maxAge, nowMs)) {
     return blocked(
       "stale_snapshot",
@@ -187,6 +192,12 @@ function gateJoin(snap: AppStateSnapshot, nowMs: number, maxAge: number): GateRe
       `Join is only available while the circle is Pending. Current status: ${snap.status}.`,
     );
   }
+  if (opts.memberAddress && !snap.memberAddresses.includes(opts.memberAddress)) {
+    return blocked(
+      "not_a_member",
+      `Address ${opts.memberAddress} is not in this circle's member list.`,
+    );
+  }
   if (snap.hasLockedCollateral) {
     return blocked(
       "already_joined",
@@ -196,7 +207,12 @@ function gateJoin(snap: AppStateSnapshot, nowMs: number, maxAge: number): GateRe
   return allowed();
 }
 
-function gateContribute(snap: AppStateSnapshot, nowMs: number, maxAge: number): GateResult {
+function gateContribute(
+  snap: AppStateSnapshot,
+  nowMs: number,
+  maxAge: number,
+  opts: { memberAddress?: string } = {},
+): GateResult {
   if (!isSnapshotFresh(snap.fetchedAtMs, maxAge, nowMs)) {
     return blocked(
       "stale_snapshot",
@@ -209,6 +225,18 @@ function gateContribute(snap: AppStateSnapshot, nowMs: number, maxAge: number): 
     return blocked(
       "wrong_status",
       `Contribute is only available on an Active circle. Current status: ${snap.status}.`,
+    );
+  }
+  if (snap.currentRound < 0) {
+    return blocked(
+      "no_active_round",
+      "No active round found in the snapshot. The circle may be Completed or Cancelled.",
+    );
+  }
+  if (opts.memberAddress && !snap.memberAddresses.includes(opts.memberAddress)) {
+    return blocked(
+      "not_a_member",
+      `Address ${opts.memberAddress} is not in this circle's member list.`,
     );
   }
   // Deadline check when ledger data is available
@@ -230,7 +258,12 @@ function gateContribute(snap: AppStateSnapshot, nowMs: number, maxAge: number): 
   return allowed();
 }
 
-function gatePayout(snap: AppStateSnapshot, nowMs: number, maxAge: number): GateResult {
+function gatePayout(
+  snap: AppStateSnapshot,
+  nowMs: number,
+  maxAge: number,
+  opts: { memberAddress?: string } = {},
+): GateResult {
   if (!isSnapshotFresh(snap.fetchedAtMs, maxAge, nowMs)) {
     return blocked(
       "stale_snapshot",
@@ -245,6 +278,12 @@ function gatePayout(snap: AppStateSnapshot, nowMs: number, maxAge: number): Gate
       `Payout is only available on an Active circle. Current status: ${snap.status}.`,
     );
   }
+  if (snap.currentRound < 0) {
+    return blocked(
+      "no_active_round",
+      "No active round found in the snapshot. The circle may be Completed or Cancelled.",
+    );
+  }
   if (snap.contributionsReceived < snap.memberAddresses.length) {
     return blocked(
       "round_not_complete",
@@ -255,7 +294,12 @@ function gatePayout(snap: AppStateSnapshot, nowMs: number, maxAge: number): Gate
   return allowed();
 }
 
-function gateDefault(snap: AppStateSnapshot, nowMs: number, maxAge: number): GateResult {
+function gateDefault(
+  snap: AppStateSnapshot,
+  nowMs: number,
+  maxAge: number,
+  opts: { memberAddress?: string } = {},
+): GateResult {
   if (!isSnapshotFresh(snap.fetchedAtMs, maxAge, nowMs)) {
     return blocked(
       "stale_snapshot",
@@ -268,6 +312,24 @@ function gateDefault(snap: AppStateSnapshot, nowMs: number, maxAge: number): Gat
     return blocked(
       "wrong_status",
       `Default can only be marked on an Active circle. Current status: ${snap.status}.`,
+    );
+  }
+  if (snap.currentRound < 0) {
+    return blocked(
+      "no_active_round",
+      "No active round found in the snapshot. The circle may be Completed or Cancelled.",
+    );
+  }
+  if (opts.memberAddress && !snap.memberAddresses.includes(opts.memberAddress)) {
+    return blocked(
+      "not_a_member",
+      `Address ${opts.memberAddress} is not in this circle's member list.`,
+    );
+  }
+  if (snap.hasContributedCurrentRound) {
+    return blocked(
+      "already_contributed",
+      `This member already contributed to round ${snap.currentRound}; they cannot be marked in default.`,
     );
   }
   // Fail closed: a punitive action requires positive proof the deadline
@@ -287,16 +349,15 @@ function gateDefault(snap: AppStateSnapshot, nowMs: number, maxAge: number): Gat
         `ledger is ${snap.latestLedger}. The contribution window is still open.`,
     );
   }
-  if (snap.hasContributedCurrentRound) {
-    return blocked(
-      "already_contributed",
-      `This member already contributed to round ${snap.currentRound}; they cannot be marked in default.`,
-    );
-  }
   return allowed();
 }
 
-function gateClose(snap: AppStateSnapshot, nowMs: number, maxAge: number): GateResult {
+function gateClose(
+  snap: AppStateSnapshot,
+  nowMs: number,
+  maxAge: number,
+  opts: { memberAddress?: string } = {},
+): GateResult {
   if (!isSnapshotFresh(snap.fetchedAtMs, maxAge, nowMs)) {
     return blocked(
       "stale_snapshot",
@@ -309,6 +370,12 @@ function gateClose(snap: AppStateSnapshot, nowMs: number, maxAge: number): GateR
     return blocked(
       "wrong_status",
       `Close is only available on a Completed or Cancelled circle. Current status: ${snap.status}.`,
+    );
+  }
+  if (opts.memberAddress && !snap.memberAddresses.includes(opts.memberAddress)) {
+    return blocked(
+      "not_a_member",
+      `Address ${opts.memberAddress} is not authorised to close this circle (not a member).`,
     );
   }
   return allowed();
@@ -330,7 +397,7 @@ function gateClose(snap: AppStateSnapshot, nowMs: number, maxAge: number): GateR
  *
  * @param action   The contract action being requested.
  * @param snapshot The most-recently-built app state snapshot.
- * @param opts     Optional overrides for `maxSnapshotAgeMs` and `nowMs`.
+ * @param opts     Optional overrides for `maxSnapshotAgeMs`, `nowMs`, and `memberAddress`.
  *
  * @example
  * const gate = computeActionEligibility("contribute", snapshot);
@@ -340,22 +407,19 @@ function gateClose(snap: AppStateSnapshot, nowMs: number, maxAge: number): GateR
 export function computeActionEligibility(
   action: CircleAction,
   snapshot: AppStateSnapshot,
-  opts: { maxSnapshotAgeMs?: number; nowMs?: number } = {},
+  opts: { maxSnapshotAgeMs?: number; nowMs?: number; memberAddress?: string } = {},
 ): GateResult {
   const nowMs  = opts.nowMs  ?? Date.now();
   const maxAge = opts.maxSnapshotAgeMs ?? DEFAULT_MAX_SNAPSHOT_AGE_MS;
   const networkGate = checkNetworkGate(snapshot);
   if (networkGate) return networkGate;
 
-  const netGate = checkNetworkGate(snapshot);
-  if (netGate) return netGate;
-
   switch (action) {
-    case "join":       return gateJoin(snapshot, nowMs, maxAge);
-    case "contribute": return gateContribute(snapshot, nowMs, maxAge);
-    case "payout":     return gatePayout(snapshot, nowMs, maxAge);
-    case "default":    return gateDefault(snapshot, nowMs, maxAge);
-    case "close":      return gateClose(snapshot, nowMs, maxAge);
+    case "join":       return gateJoin(snapshot, nowMs, maxAge, opts);
+    case "contribute": return gateContribute(snapshot, nowMs, maxAge, opts);
+    case "payout":     return gatePayout(snapshot, nowMs, maxAge, opts);
+    case "default":    return gateDefault(snapshot, nowMs, maxAge, opts);
+    case "close":      return gateClose(snapshot, nowMs, maxAge, opts);
     default: {
       const _exhaustive: never = action;
       throw new Error(`computeActionEligibility: unknown action "${String(_exhaustive)}"`);
