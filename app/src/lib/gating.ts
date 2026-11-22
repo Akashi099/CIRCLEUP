@@ -172,25 +172,48 @@ function checkNetworkGate(snap: AppStateSnapshot): GateBlocked | null {
   return null;
 }
 
+// ─── Ledger-authoritative deadline helpers ───────────────────────────────────
+
 /**
- * Returns a {@link GateBlocked} result when the snapshot's status is not a
- * recognised lifecycle state (e.g. a future contract version, or a malformed
- * indexer value), or `null` when the status is known.
+ * Ledger-derived phase of a round deadline.
  *
- * Unknown statuses fail closed: no write is ever enabled for a state the
- * client does not understand.  Read-only details may still render when their
- * fields validate — this gate only governs mutations.
+ * | Phase       | Condition                             | Meaning                                  |
+ * |-------------|---------------------------------------|------------------------------------------|
+ * | `"open"`    | `latestLedger < deadlineLedger`       | Contribution window open.                |
+ * | `"due"`     | `latestLedger === deadlineLedger`     | Deadline ledger reached; still open.     |
+ * | `"passed"`  | `latestLedger > deadlineLedger`       | Deadline passed; defaults may be marked. |
+ * | `"unknown"` | either ledger value missing / invalid | No claim can be made either way.         |
+ *
+ * This is the **only** function that may decide whether a deadline has
+ * passed. Wall-clock time and the seconds-per-ledger estimate in
+ * `lib/deadline.ts` are presentation-only and must never feed into it.
  */
-function checkStatusGate(snap: AppStateSnapshot): GateBlocked | null {
-  if (!isKnownStatus(snap.status)) {
-    const presentation = getStatusPresentation(snap.status);
-    return blocked(
-      "unsupported_status",
-      `This circle is in a state this app version does not support ` +
-        `(${presentation.label}). Actions are disabled until the app is updated.`,
-    );
-  }
-  return null;
+export type LedgerDeadlinePhase = "open" | "due" | "passed" | "unknown";
+
+function isLedgerValue(v: number | null | undefined): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v >= 0;
+}
+
+export function ledgerDeadlinePhase(
+  deadlineLedger: number | null | undefined,
+  latestLedger: number | null | undefined,
+): LedgerDeadlinePhase {
+  if (!isLedgerValue(deadlineLedger) || !isLedgerValue(latestLedger)) return "unknown";
+  if (latestLedger > deadlineLedger) return "passed";
+  if (latestLedger === deadlineLedger) return "due";
+  return "open";
+}
+
+/**
+ * True only with positive ledger proof that the deadline has passed
+ * (`latestLedger > deadlineLedger`). Missing or invalid data is never
+ * "passed", and no wall-clock input is consulted.
+ */
+export function isDeadlinePassedByLedger(
+  deadlineLedger: number | null | undefined,
+  latestLedger: number | null | undefined,
+): boolean {
+  return ledgerDeadlinePhase(deadlineLedger, latestLedger) === "passed";
 }
 
 // ─── Per-action gate logic ────────────────────────────────────────────────────
@@ -234,15 +257,15 @@ function gateContribute(snap: AppStateSnapshot, nowMs: number, maxAge: number): 
       `Contribute is only available on an Active circle. Current status: ${snap.status}.`,
     );
   }
-  // Deadline check when ledger data is available
-  if (snap.deadlineLedger !== null && snap.latestLedger !== null) {
-    if (snap.latestLedger > snap.deadlineLedger) {
-      return blocked(
-        "deadline_passed",
-        `Round ${snap.currentRound} deadline has passed (deadline ledger ${snap.deadlineLedger}, ` +
-          `latest ledger ${snap.latestLedger}). You cannot contribute after the deadline.`,
-      );
-    }
+  // Deadline check when ledger data is available. Ledger state only — a
+  // wall-clock estimate can never close the contribution window, and the
+  // exact deadline ledger ("due") is still open.
+  if (isDeadlinePassedByLedger(snap.deadlineLedger, snap.latestLedger)) {
+    return blocked(
+      "deadline_passed",
+      `Round ${snap.currentRound} deadline has passed (deadline ledger ${snap.deadlineLedger}, ` +
+        `latest ledger ${snap.latestLedger}). You cannot contribute after the deadline.`,
+    );
   }
   if (snap.hasContributedCurrentRound) {
     return blocked(
@@ -296,14 +319,15 @@ function gateDefault(snap: AppStateSnapshot, nowMs: number, maxAge: number): Gat
   // Fail closed: a punitive action requires positive proof the deadline
   // passed. Unlike gateContribute (which allows when ledger data is missing),
   // any unknown ledger height blocks the default.
-  if (snap.deadlineLedger === null || snap.latestLedger === null) {
+  const phase = ledgerDeadlinePhase(snap.deadlineLedger, snap.latestLedger);
+  if (phase === "unknown") {
     return blocked(
       "deadline_not_passed",
       `Cannot verify that round ${snap.currentRound} deadline has passed: ledger data is ` +
         "unavailable. Refusing to mark a default without confirmed ledger height.",
     );
   }
-  if (snap.latestLedger <= snap.deadlineLedger) {
+  if (phase !== "passed") {
     return blocked(
       "deadline_not_passed",
       `Round ${snap.currentRound} deadline is ledger ${snap.deadlineLedger}; latest indexed ` +
@@ -367,12 +391,6 @@ export function computeActionEligibility(
 ): GateResult {
   const nowMs  = opts.nowMs  ?? Date.now();
   const maxAge = opts.maxSnapshotAgeMs ?? DEFAULT_MAX_SNAPSHOT_AGE_MS;
-
-  const netGate = checkNetworkGate(snapshot);
-  if (netGate) return netGate;
-
-  const statusGate = checkStatusGate(snapshot);
-  if (statusGate) return statusGate;
 
   switch (action) {
     case "join":       return gateJoin(snapshot, nowMs, maxAge);
