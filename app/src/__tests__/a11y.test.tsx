@@ -276,6 +276,17 @@ describe("a11y: CopyControl", () => {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+function parseCspHeader(header: string): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const part of header.split(";")) {
+    const tokens = part.trim().split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) continue;
+    const [name, ...sources] = tokens;
+    out[name.toLowerCase()] = sources;
+  }
+  return out;
+}
+
 function formatViolations(violations: axe.Result[]): string {
   if (violations.length === 0) return "";
   return violations
